@@ -1,5 +1,5 @@
 # ---------- Build ----------
-FROM eclipse-temurin:21-jdk AS build
+FROM eclipse-temurin:25-jdk AS build
 WORKDIR /app
 
 # Dependências primeiro: a camada fica em cache enquanto o pom.xml não mudar
@@ -11,7 +11,7 @@ COPY src/ src/
 RUN ./mvnw -B -q -DskipTests package && cp target/compras-cotacoes-*.jar app.jar
 
 # ---------- Runtime ----------
-FROM eclipse-temurin:21-jre-alpine
+FROM eclipse-temurin:25-jre-alpine
 WORKDIR /app
 
 # apk upgrade aplica os patches do Alpine publicados depois da imagem base (ex.: libexpat, zlib)
