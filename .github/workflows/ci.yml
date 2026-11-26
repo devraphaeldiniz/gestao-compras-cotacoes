@@ -24,6 +24,22 @@ jobs:
           java-version: "21"
           cache: maven
 
+      # A distribuição do Maven baixada pelo mvnw fica em cache; quando precisa baixar, tenta até 5 vezes
+      # (o download a partir do runner falha de vez em quando)
+      - name: Cache da distribuição do Maven
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.m2/wrapper
+          key: maven-wrapper-${{ hashFiles('.mvn/wrapper/maven-wrapper.properties') }}
+      - name: Maven (com retentativa)
+        run: |
+          chmod +x mvnw
+          for i in 1 2 3 4 5; do
+            ./mvnw -B -q --version && exit 0
+            echo "Download do Maven falhou (tentativa $i), nova tentativa em 15 s"; sleep 15
+          done
+          exit 1
+
       # O runner Ubuntu já traz Docker, que o Testcontainers usa para subir o PostgreSQL 16
       - name: Testes
         run: |
@@ -51,6 +67,22 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: maven
+
+      # A distribuição do Maven baixada pelo mvnw fica em cache; quando precisa baixar, tenta até 5 vezes
+      # (o download a partir do runner falha de vez em quando)
+      - name: Cache da distribuição do Maven
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.m2/wrapper
+          key: maven-wrapper-${{ hashFiles('.mvn/wrapper/maven-wrapper.properties') }}
+      - name: Maven (com retentativa)
+        run: |
+          chmod +x mvnw
+          for i in 1 2 3 4 5; do
+            ./mvnw -B -q --version && exit 0
+            echo "Download do Maven falhou (tentativa $i), nova tentativa em 15 s"; sleep 15
+          done
+          exit 1
       - name: Chromium e dependências do sistema
         run: |
           chmod +x mvnw
