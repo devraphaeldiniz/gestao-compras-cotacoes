@@ -22,6 +22,6 @@ USER app
 EXPOSE 8080
 ENV JAVA_OPTS="-XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError"
 HEALTHCHECK --interval=15s --timeout=3s --start-period=40s --retries=5 \
-    CMD wget -qO- http://localhost:8080/actuator/health | grep -q '"UP"' || exit 1
+    CMD wget -qO- "http://localhost:${PORT:-8080}/actuator/health" | grep -q '"UP"' || exit 1
 
 ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar app.jar"]

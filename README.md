@@ -204,11 +204,24 @@ docker compose up -d postgres        # PostgreSQL 16 publicado em localhost:5434
 
 A porta do host é **5434** para não conflitar com outro PostgreSQL local. Sem `APP_JWT_SEGREDO`, a chave do JWT é gerada a cada subida (tokens antigos deixam de valer). Com `EMAIL_HABILITADO=false` (o padrão local), os e-mails só aparecem no log.
 
+### 3. Deploy no Render
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/devraphaeldiniz/gestao-compras-cotacoes)
+
+O [`render.yaml`](render.yaml) é um Blueprint. No painel do Render, escolha **New → Blueprint** e este repositório; ele cria o PostgreSQL 16 e o serviço web a partir do Dockerfile.
+
+- **Conexão com o banco:** a aplicação recebe o banco em partes (`DB_HOST`, `DB_PORT`, `DB_NAME`), pela rede interna do Render.
+- **Segredo do JWT:** é gerado pelo próprio Render e não fica no repositório.
+- **Novas versões:** cada push no `main` publica uma versão nova.
+
+No plano gratuito, o serviço dorme depois de 15 minutos sem acesso, e o primeiro acesso leva cerca de 1 minuto. O PostgreSQL gratuito expira em 30 dias.
+
 ### Variáveis de ambiente
 
 | Variável | Padrão |
 |---|---|
 | `DB_URL` | `jdbc:postgresql://localhost:5434/compras_db` |
+| `DB_HOST` / `DB_PORT` / `DB_NAME` | alternativa à `DB_URL` (formato do Render): `localhost` / `5434` / `compras_db` |
 | `DB_USERNAME` / `DB_PASSWORD` | `compras` / `compras` |
 | `APP_JWT_SEGREDO` | vazio = chave aleatória (só desenvolvimento); em produção, 32+ caracteres |
 | `APP_JWT_EXPIRACAO` | `8h` |

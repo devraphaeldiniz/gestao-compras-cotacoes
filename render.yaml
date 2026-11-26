@@ -1,0 +1,47 @@
+# Blueprint do Render: no painel, New → Blueprint → este repositório.
+# Cria o PostgreSQL 16 e o serviço web (build do Dockerfile), ligados pela rede interna do Render.
+# Plano gratuito: o serviço dorme após 15 min sem acesso (o primeiro acesso leva ~1 min para acordar)
+# e o PostgreSQL gratuito expira em 30 dias (depois, recrie o banco ou mude para um plano pago).
+
+databases:
+  - name: compras-db
+    plan: free
+    region: oregon
+    databaseName: compras_db
+    user: compras
+    postgresMajorVersion: "16"
+
+services:
+  - type: web
+    name: compras-cotacoes
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /actuator/health
+    autoDeploy: true
+    envVars:
+      # Banco: o Render informa host/porta/nome em partes; a aplicação monta a URL JDBC
+      - key: DB_HOST
+        fromDatabase: { name: compras-db, property: host }
+      - key: DB_PORT
+        fromDatabase: { name: compras-db, property: port }
+      - key: DB_NAME
+        fromDatabase: { name: compras-db, property: database }
+      - key: DB_USERNAME
+        fromDatabase: { name: compras-db, property: user }
+      - key: DB_PASSWORD
+        fromDatabase: { name: compras-db, property: password }
+      # Segredo do JWT gerado pelo Render (aleatório, fica só no painel)
+      - key: APP_JWT_SEGREDO
+        generateValue: true
+      # 512 MB e CPU fracionada: GC serial e JIT só em C1 para subir mais rápido
+      - key: JAVA_OPTS
+        value: "-XX:MaxRAMPercentage=70 -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -Xss512k -XX:+ExitOnOutOfMemoryError"
+      - key: LOGGING_STRUCTURED_FORMAT_CONSOLE
+        value: ecs
+      # Demo de portfólio: e-mails só no log (sem SMTP); seed com usuários de demonstração (db/seed)
+      - key: EMAIL_HABILITADO
+        value: "false"
+      - key: SWAGGER_ENABLED
+        value: "true"
