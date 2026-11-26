@@ -1,0 +1,49 @@
+spring:
+  application:
+    name: compras-cotacoes
+  datasource:
+    # Padrão aponta para o PostgreSQL do docker-compose (porta 5434 no host)
+    url: ${DB_URL:jdbc:postgresql://localhost:5434/compras_db}
+    username: ${DB_USERNAME:compras}
+    password: ${DB_PASSWORD:compras}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        format_sql: true
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+    # db/seed traz dados de demonstração; os testes usam apenas db/migration
+    locations: classpath:db/migration,classpath:db/seed
+  messages:
+    basename: messages
+    encoding: UTF-8
+    fallback-to-system-locale: false
+    use-code-as-default-message: false
+  jackson:
+    default-property-inclusion: always
+    serialization:
+      write-dates-as-timestamps: false
+
+server:
+  port: ${PORT:8080}
+  error:
+    include-message: always
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

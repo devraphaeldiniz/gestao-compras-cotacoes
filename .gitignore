@@ -1,0 +1,23 @@
+target/
+!.mvn/wrapper/maven-wrapper.jar
+*.class
+*.log
+
+# IDEs
+.idea/
+*.iml
+.vscode/
+.settings/
+.project
+.classpath
+.factorypath
+
+# SO
+.DS_Store
+Thumbs.db
+
+# Ambiente
+.env
+
+# Configuração local do Claude Code (caminho do JDK desta máquina)
+.claude/

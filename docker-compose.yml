@@ -1,0 +1,39 @@
+name: compras-cotacoes
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: compras-postgres
+    environment:
+      POSTGRES_DB: compras_db
+      POSTGRES_USER: ${DB_USERNAME:-compras}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-compras}
+    # 5434 no host evita conflito com outro PostgreSQL local (5432/5433 costumam estar ocupadas)
+    ports:
+      - "${DB_PORTA_HOST:-5434}:5432"
+    volumes:
+      - compras-dados:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Opcional: sobe a aplicação em container junto com o banco
+  #   docker compose --profile app up -d --build
+  app:
+    profiles: ["app"]
+    build: .
+    container_name: compras-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/compras_db
+      DB_USERNAME: ${DB_USERNAME:-compras}
+      DB_PASSWORD: ${DB_PASSWORD:-compras}
+    ports:
+      - "8080:8080"
+
+volumes:
+  compras-dados:
