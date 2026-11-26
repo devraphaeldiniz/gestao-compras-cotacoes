@@ -1,6 +1,7 @@
 package com.compras.cotacoes.proposta;
 
 import com.compras.cotacoes.proposta.dto.ItemRankingResponse;
+import com.compras.cotacoes.proposta.dto.PropostaItemResponse;
 import com.compras.cotacoes.proposta.dto.PropostaResponse;
 import java.util.List;
 import org.mapstruct.Mapper;
@@ -13,10 +14,15 @@ public interface PropostaMapper {
     @Mapping(target = "fornecedorId", source = "fornecedor.id")
     @Mapping(target = "fornecedorRazaoSocial", source = "fornecedor.razaoSocial")
     @Mapping(target = "fornecedorAtivo", source = "fornecedor.ativo")
-    @Mapping(target = "valorMercadoria", expression = "java(proposta.calcularValorMercadoria())")
     PropostaResponse paraResposta(Proposta proposta);
 
     List<PropostaResponse> paraRespostas(List<Proposta> propostas);
+
+    @Mapping(target = "produtoId", source = "cotacaoItem.produto.id")
+    @Mapping(target = "produtoSku", source = "cotacaoItem.produto.sku")
+    @Mapping(target = "produtoNome", source = "cotacaoItem.produto.nome")
+    @Mapping(target = "quantidade", source = "cotacaoItem.quantidade")
+    PropostaItemResponse paraItem(PropostaItem item);
 
     default ItemRankingResponse paraItemRanking(AvaliadorPropostasService.PropostaAvaliada avaliada) {
         Proposta proposta = avaliada.proposta();

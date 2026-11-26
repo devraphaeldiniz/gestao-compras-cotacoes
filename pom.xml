@@ -7,7 +7,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.5.16</version>
+        <version>4.2.0</version>
         <relativePath/>
     </parent>
 
@@ -22,23 +22,18 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <mapstruct.version>1.6.3</mapstruct.version>
         <lombok-mapstruct-binding.version>0.2.0</lombok-mapstruct-binding.version>
-        <springdoc.version>2.10.1</springdoc.version>
-        <!--
-          Patches de segurança acima do que o Boot 3.5.16 gerencia (apontados pelo Trivy).
-          Mesma linha de versão (sem troca de major); remover quando o Boot alcançar.
-        -->
-        <tomcat.version>10.1.62</tomcat.version>
-        <jackson-bom.version>2.21.9</jackson-bom.version>
-        <postgresql.version>42.7.15</postgresql.version>
-        <commons-lang3.version>3.22.0</commons-lang3.version>
-        <log4j2.version>2.25.5</log4j2.version>
+        <springdoc.version>3.2.1</springdoc.version>
+        <jacoco.version>0.8.16</jacoco.version>
+        <playwright.version>1.65.1</playwright.version>
+        <!-- Preenchido pelo JaCoCo (prepare-agent); vazio quando ele não roda -->
+        <argLine></argLine>
     </properties>
 
     <dependencies>
         <!-- Web, validação e persistência -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-web</artifactId>
+            <artifactId>spring-boot-starter-webmvc</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -53,6 +48,31 @@
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
 
+        <!-- Segurança: login próprio com JWT (assinado com HMAC) validado pelo resource server -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security-oauth2-resource-server</artifactId>
+        </dependency>
+
+        <!-- Notificações por e-mail e métricas -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-mail</artifactId>
+        </dependency>
+        <!-- No Boot 4 a auto-configuração de métricas é um módulo separado do actuator -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-micrometer-metrics</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+
         <!-- Banco de dados e migrações -->
         <dependency>
             <groupId>org.postgresql</groupId>
@@ -60,8 +80,8 @@
             <scope>runtime</scope>
         </dependency>
         <dependency>
-            <groupId>org.flywaydb</groupId>
-            <artifactId>flyway-core</artifactId>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-flyway</artifactId>
         </dependency>
         <dependency>
             <groupId>org.flywaydb</groupId>
@@ -95,17 +115,34 @@
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webmvc-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-testcontainers</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.testcontainers</groupId>
-            <artifactId>junit-jupiter</artifactId>
+            <artifactId>testcontainers-junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.testcontainers</groupId>
-            <artifactId>postgresql</artifactId>
+            <artifactId>testcontainers-postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- E2E da interface (só roda no perfil e2e: ./mvnw verify -Pe2e) -->
+        <dependency>
+            <groupId>com.microsoft.playwright</groupId>
+            <artifactId>playwright</artifactId>
+            <version>${playwright.version}</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
@@ -170,8 +207,63 @@
                     <includes>
                         <include>**/*Test.java</include>
                     </includes>
-                    <argLine>-javaagent:${org.mockito:mockito-core:jar} -Xshare:off -Dfile.encoding=UTF-8</argLine>
+                    <argLine>@{argLine} -javaagent:${org.mockito:mockito-core:jar} -Xshare:off -Dfile.encoding=UTF-8</argLine>
                 </configuration>
+            </plugin>
+            <plugin>
+                <!-- Cobertura: relatório em target/site/jacoco e meta mínima que quebra o build -->
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>${jacoco.version}</version>
+                <configuration>
+                    <excludes>
+                        <!-- Código gerado (MapStruct), DTOs/records e a classe de inicialização -->
+                        <exclude>**/*MapperImpl.class</exclude>
+                        <exclude>**/dto/**</exclude>
+                        <exclude>**/ComprasCotacoesApplication.class</exclude>
+                    </excludes>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>preparar</id>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>relatorio</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>meta</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>BUNDLE</element>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.80</minimum>
+                                        </limit>
+                                        <limit>
+                                            <counter>BRANCH</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.65</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
@@ -187,4 +279,27 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!-- ./mvnw test -Pe2e : roda só os testes de interface (*E2E.java) num Chromium headless -->
+        <profile>
+            <id>e2e</id>
+            <properties>
+                <jacoco.skip>true</jacoco.skip>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <includes combine.self="override">
+                                <include>**/*E2E.java</include>
+                            </includes>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>

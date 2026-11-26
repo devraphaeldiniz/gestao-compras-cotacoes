@@ -1,23 +1,20 @@
 package com.compras.cotacoes.cotacao.dto;
 
+import com.compras.cotacoes.cotacao.OrigemCotacao;
 import com.compras.cotacoes.cotacao.StatusCotacao;
-import com.compras.cotacoes.produto.UnidadeMedida;
-import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 
 public record CotacaoResumoResponse(
         Long id,
         String codigo,
-        Long produtoId,
-        String produtoSku,
-        String produtoNome,
-        UnidadeMedida unidade,
-        BigDecimal quantidade,
+        OrigemCotacao origem,
         StatusCotacao status,
+        List<CotacaoItemResponse> itens,
         LocalDate dataLimite,
-        String observacao,
         long quantidadePropostas,
         Long propostaVencedoraId,
+        String criadoPor,
         LocalDateTime criadoEm) {
 }

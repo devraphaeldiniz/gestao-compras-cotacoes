@@ -1,8 +1,10 @@
 package com.compras.cotacoes.proposta;
 
 import com.compras.cotacoes.cotacao.Cotacao;
+import com.compras.cotacoes.cotacao.CotacaoItem;
 import com.compras.cotacoes.fornecedor.Fornecedor;
 import com.compras.cotacoes.shared.persistencia.EntidadeAuditavel;
+import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -13,9 +15,13 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -39,8 +45,12 @@ public class Proposta extends EntidadeAuditavel {
     @JoinColumn(name = "fornecedor_id", nullable = false)
     private Fornecedor fornecedor;
 
-    @Column(name = "preco_unitario", nullable = false, precision = 19, scale = 4)
-    private BigDecimal precoUnitario;
+    @OneToMany(mappedBy = "proposta", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("id")
+    private List<PropostaItem> itens = new ArrayList<>();
+
+    @Column(name = "valor_mercadoria", nullable = false, precision = 19, scale = 2)
+    private BigDecimal valorMercadoria;
 
     @Column(name = "valor_frete", nullable = false, precision = 19, scale = 2)
     private BigDecimal valorFrete = BigDecimal.ZERO;
@@ -73,8 +83,9 @@ public class Proposta extends EntidadeAuditavel {
     @Column(name = "justificativa_escolha", length = 500)
     private String justificativaEscolha;
 
-    /** Valor da mercadoria (quantidade x preço), derivado dos valores persistidos. */
-    public BigDecimal calcularValorMercadoria() {
-        return valorTotal.subtract(valorFrete).subtract(valorImpostoCalculado);
+    public PropostaItem adicionarItem(CotacaoItem cotacaoItem, BigDecimal precoUnitario, BigDecimal valorMercadoriaItem) {
+        PropostaItem item = new PropostaItem(this, cotacaoItem, precoUnitario, valorMercadoriaItem);
+        itens.add(item);
+        return item;
     }
 }

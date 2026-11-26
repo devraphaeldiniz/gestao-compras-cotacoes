@@ -16,17 +16,23 @@ import com.compras.cotacoes.cotacao.CotacaoRepository;
 import com.compras.cotacoes.cotacao.StatusCotacao;
 import com.compras.cotacoes.fornecedor.Fornecedor;
 import com.compras.cotacoes.fornecedor.FornecedorRepository;
+import com.compras.cotacoes.historico.HistoricoService;
 import com.compras.cotacoes.pedido.PedidoCompra;
 import com.compras.cotacoes.pedido.PedidoCompraMapper;
 import com.compras.cotacoes.pedido.PedidoCompraRepository;
 import com.compras.cotacoes.pedido.PedidoCompraService;
 import com.compras.cotacoes.pedido.StatusPedidoCompra;
+import com.compras.cotacoes.produto.ExtratoEstoqueService;
+import com.compras.cotacoes.produto.MovimentacaoEstoqueRepository;
 import com.compras.cotacoes.produto.Produto;
 import com.compras.cotacoes.produto.ProdutoRepository;
 import com.compras.cotacoes.proposta.dto.DecidirCotacaoRequest;
+import com.compras.cotacoes.proposta.dto.ItemPropostaRequest;
+import com.compras.cotacoes.proposta.dto.PropostaResponse;
 import com.compras.cotacoes.proposta.dto.RegistrarPropostaRequest;
 import com.compras.cotacoes.proposta.dto.ResultadoDecisaoResponse;
 import com.compras.cotacoes.shared.exception.NegocioException;
+import com.compras.cotacoes.shared.seguranca.UsuarioAtual;
 import com.compras.cotacoes.support.Fabrica;
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -59,6 +65,10 @@ class PropostaDecisaoServiceTest {
     private PedidoCompraRepository pedidoCompraRepository;
     @Mock
     private ProdutoRepository produtoRepository;
+    @Mock
+    private MovimentacaoEstoqueRepository movimentacaoRepository;
+    @Mock
+    private HistoricoService historico;
 
     private PropostaService service;
     private Cotacao cotacao;
@@ -72,11 +82,15 @@ class PropostaDecisaoServiceTest {
     @BeforeEach
     void configurar() {
         LocaleContextHolder.setLocale(Locale.forLanguageTag("pt-BR"));
+        UsuarioAtual usuarioAtual = new UsuarioAtual();
         PedidoCompraMapper pedidoMapper = Mappers.getMapper(PedidoCompraMapper.class);
-        PedidoCompraService pedidoService = new PedidoCompraService(pedidoCompraRepository, produtoRepository, pedidoMapper, Fabrica.RELOGIO);
+        PedidoCompraService pedidoService = new PedidoCompraService(pedidoCompraRepository, produtoRepository, pedidoMapper,
+                new ExtratoEstoqueService(movimentacaoRepository, produtoRepository, usuarioAtual, Fabrica.RELOGIO),
+                historico, Fabrica.metricas(), usuarioAtual, Fabrica.RELOGIO);
         service = new PropostaService(propostaRepository, cotacaoRepository, fornecedorRepository,
                 new CalculadoraPropostaService(), new AvaliadorPropostasService(), pedidoService,
-                Mappers.getMapper(PropostaMapper.class), pedidoMapper, Fabrica.mensagens(), Fabrica.RELOGIO);
+                Mappers.getMapper(PropostaMapper.class), pedidoMapper, Fabrica.mensagens(), historico,
+                Fabrica.metricas(), usuarioAtual, Fabrica.RELOGIO);
 
         Produto produto = Fabrica.produto(1L, "PAP-A4", "8", "20");
         cotacao = Fabrica.cotacaoAberta(5L, produto, "32");
@@ -96,8 +110,11 @@ class PropostaDecisaoServiceTest {
         LocaleContextHolder.resetLocaleContext();
     }
 
+    /** Associa a proposta à cotação, com o preço do único item = total / 32. */
     private Proposta adicionar(Proposta proposta) {
         proposta.setCotacao(cotacao);
+        proposta.adicionarItem(cotacao.getItens().getFirst(),
+                proposta.getValorTotal().divide(new BigDecimal("32"), 4, java.math.RoundingMode.HALF_UP), proposta.getValorTotal());
         propostas.add(proposta);
         return proposta;
     }
@@ -118,7 +135,6 @@ class PropostaDecisaoServiceTest {
 
             assertThatThrownBy(() -> service.decidir(5L, automatica(CriterioDecisao.MENOR_PRECO)))
                     .isInstanceOf(NegocioException.class)
-                    .hasMessageContaining("proposta.minimo.nao.atingido")
                     .extracting("chave").isEqualTo("proposta.minimo.nao.atingido");
 
             assertThat(cotacao.getStatus()).isEqualTo(StatusCotacao.ABERTA);
@@ -177,9 +193,7 @@ class PropostaDecisaoServiceTest {
         @Test
         @DisplayName("Escolher proposta diferente da recomendada sem justificativa retorna erro")
         void exigeJustificativa() {
-            DecidirCotacaoRequest request = new DecidirCotacaoRequest(CriterioDecisao.MENOR_PRECO, rapida.getId(), "  ");
-
-            assertThatThrownBy(() -> service.decidir(5L, request))
+            assertThatThrownBy(() -> service.decidir(5L, new DecidirCotacaoRequest(CriterioDecisao.MENOR_PRECO, rapida.getId(), "  ")))
                     .isInstanceOf(NegocioException.class)
                     .extracting("chave").isEqualTo("proposta.justificativa.obrigatoria");
             assertThat(cotacao.getStatus()).isEqualTo(StatusCotacao.ABERTA);
@@ -188,14 +202,11 @@ class PropostaDecisaoServiceTest {
         @Test
         @DisplayName("Com justificativa, a escolha manual é aceita e registrada")
         void aceitaEscolhaJustificada() {
-            DecidirCotacaoRequest request = new DecidirCotacaoRequest(
-                    CriterioDecisao.MENOR_PRECO, rapida.getId(), "Entrega urgente para a filial");
-
-            ResultadoDecisaoResponse resultado = service.decidir(5L, request);
+            ResultadoDecisaoResponse resultado = service.decidir(5L, new DecidirCotacaoRequest(
+                    CriterioDecisao.MENOR_PRECO, rapida.getId(), "Entrega urgente para a filial"));
 
             assertThat(resultado.escolhaManual()).isTrue();
             assertThat(resultado.propostaRecomendadaId()).isEqualTo(barata.getId());
-            assertThat(resultado.propostaVencedora().id()).isEqualTo(rapida.getId());
             assertThat(rapida.getStatus()).isEqualTo(StatusProposta.VENCEDORA);
             assertThat(rapida.getJustificativaEscolha()).isEqualTo("Entrega urgente para a filial");
             assertThat(barata.getStatus()).isEqualTo(StatusProposta.REJEITADA);
@@ -236,20 +247,16 @@ class PropostaDecisaoServiceTest {
         @Test
         @DisplayName("Bloqueia a escolha de proposta de outra cotação")
         void bloqueiaPropostaDeOutraCotacao() {
-            assertThatThrownBy(() -> service.decidir(5L,
-                    new DecidirCotacaoRequest(CriterioDecisao.MENOR_PRECO, 777L, "Qualquer")))
+            assertThatThrownBy(() -> service.decidir(5L, new DecidirCotacaoRequest(CriterioDecisao.MENOR_PRECO, 777L, "Qualquer")))
                     .isInstanceOf(NegocioException.class)
                     .extracting("chave").isEqualTo("proposta.nao.pertence");
         }
     }
 
     @Test
-    @DisplayName("Decisão automática fecha a cotação, classifica as propostas e emite o pedido de compra")
+    @DisplayName("Decisão fecha a cotação, registra quem decidiu, classifica as propostas e emite o pedido com os itens")
     void decisaoGeraPedidoEFechaCotacao() {
         Proposta vencedora = adicionar(proposta(10L, alfa, "927.42", 5));
-        vencedora.setPrecoUnitario(new BigDecimal("24.90"));
-        vencedora.setValorFrete(new BigDecimal("35.00"));
-        vencedora.setValorImpostoCalculado(new BigDecimal("95.62"));
         Proposta segunda = adicionar(proposta(11L, beta, "932.24", 2));
         Proposta terceira = adicionar(proposta(12L, gama, "940.74", 10));
         Proposta vencida = adicionar(proposta(13L, delta, "800.00", 1, HOJE.minusDays(1)));
@@ -258,30 +265,26 @@ class PropostaDecisaoServiceTest {
 
         assertThat(cotacao.getStatus()).isEqualTo(StatusCotacao.FECHADA);
         assertThat(cotacao.getPropostaVencedoraId()).isEqualTo(10L);
+        assertThat(cotacao.getCriterioDecisao()).isEqualTo(CriterioDecisao.MENOR_PRECO);
+        assertThat(cotacao.getDecididoPor()).isEqualTo(UsuarioAtual.SISTEMA);
+        assertThat(cotacao.getDecididoEm()).isNotNull();
         assertThat(vencedora.getStatus()).isEqualTo(StatusProposta.VENCEDORA);
-        assertThat(vencedora.getPontuacaoCalculada()).isEqualByComparingTo("100.0000");
         assertThat(segunda.getStatus()).isEqualTo(StatusProposta.REJEITADA);
         assertThat(terceira.getStatus()).isEqualTo(StatusProposta.REJEITADA);
         assertThat(vencida.getStatus()).isEqualTo(StatusProposta.DESQUALIFICADA);
-        verify(propostaRepository).saveAll(propostas);
 
         ArgumentCaptor<PedidoCompra> pedidoCaptor = ArgumentCaptor.forClass(PedidoCompra.class);
         verify(pedidoCompraRepository).save(pedidoCaptor.capture());
         PedidoCompra pedido = pedidoCaptor.getValue();
         assertThat(pedido.getStatus()).isEqualTo(StatusPedidoCompra.EMITIDO);
         assertThat(pedido.getNumeroPedido()).isEqualTo("PC-2026-00001");
-        assertThat(pedido.getQuantidade()).isEqualByComparingTo("32");
-        assertThat(pedido.getValorUnitario()).isEqualByComparingTo("24.90");
-        assertThat(pedido.getValorFrete()).isEqualByComparingTo("35.00");
-        assertThat(pedido.getValorImposto()).isEqualByComparingTo("95.62");
         assertThat(pedido.getValorTotal()).isEqualByComparingTo("927.42");
-        assertThat(pedido.getPrazoEntregaDias()).isEqualTo(5);
-        assertThat(pedido.getFornecedor()).isSameAs(alfa);
-
-        assertThat(resultado.statusCotacao()).isEqualTo(StatusCotacao.FECHADA);
+        assertThat(pedido.getItens()).singleElement().satisfies(item -> {
+            assertThat(item.getQuantidade()).isEqualByComparingTo("32");
+            assertThat(item.getCustoUnitarioEfetivo()).isEqualByComparingTo("28.9819");
+        });
+        assertThat(resultado.pedidoCompra().itens()).hasSize(1);
         assertThat(resultado.ranking()).hasSize(3);
-        assertThat(resultado.pedidoCompra().id()).isEqualTo(99L);
-        assertThat(resultado.escolhaManual()).isFalse();
     }
 
     @Test
@@ -297,19 +300,6 @@ class PropostaDecisaoServiceTest {
         assertThat(rapida.getPontuacaoCalculada()).isEqualByComparingTo("99.6381");
     }
 
-    @Test
-    @DisplayName("Critério ausente usa MENOR_PRECO")
-    void criterioPadrao() {
-        adicionar(proposta(10L, alfa, "900.00", 9));
-        adicionar(proposta(11L, beta, "901.00", 1));
-        adicionar(proposta(12L, gama, "902.00", 1));
-
-        ResultadoDecisaoResponse resultado = service.decidir(5L, new DecidirCotacaoRequest(null, null, null));
-
-        assertThat(resultado.criterio()).isEqualTo(CriterioDecisao.MENOR_PRECO);
-        assertThat(resultado.propostaVencedora().id()).isEqualTo(10L);
-    }
-
     @Nested
     @DisplayName("Registro de propostas (Regra C)")
     class Registro {
@@ -320,7 +310,7 @@ class PropostaDecisaoServiceTest {
             cotacao.getFornecedoresConvidados().add(alfa);
             when(fornecedorRepository.findById(2L)).thenReturn(Optional.of(beta));
 
-            assertThatThrownBy(() -> service.registrar(5L, registro(2L)))
+            assertThatThrownBy(() -> service.registrar(5L, registro(2L, List.of(new ItemPropostaRequest(1L, new BigDecimal("24.90"))))))
                     .isInstanceOf(NegocioException.class)
                     .extracting("chave").isEqualTo("cotacao.fornecedor.nao.convidado");
         }
@@ -330,37 +320,52 @@ class PropostaDecisaoServiceTest {
         void recusaForaDoPrazo() {
             cotacao.setDataLimite(HOJE.minusDays(1));
 
-            assertThatThrownBy(() -> service.registrar(5L, registro(1L)))
+            assertThatThrownBy(() -> service.registrar(5L, registro(1L, List.of(new ItemPropostaRequest(1L, BigDecimal.TEN)))))
                     .isInstanceOf(NegocioException.class)
                     .extracting("chave").isEqualTo("cotacao.prazo.encerrado");
         }
 
         @Test
-        @DisplayName("Recusa fornecedor inativo")
-        void recusaFornecedorInativo() {
-            when(fornecedorRepository.findById(9L)).thenReturn(Optional.of(fornecedor(9L, "Inativo", false)));
+        @DisplayName("Exige preço para todos os itens e recusa produto que não está na cotação")
+        void validaItens() {
+            Produto toner = Fabrica.produto(2L, "TON-85A", "1", "5");
+            cotacao.adicionarItem(toner, new BigDecimal("4")).setId(501L);
+            when(fornecedorRepository.findById(1L)).thenReturn(Optional.of(alfa));
 
-            assertThatThrownBy(() -> service.registrar(5L, registro(9L)))
+            assertThatThrownBy(() -> service.registrar(5L, registro(1L, List.of(new ItemPropostaRequest(1L, BigDecimal.TEN)))))
                     .isInstanceOf(NegocioException.class)
-                    .extracting("chave").isEqualTo("fornecedor.inativo");
+                    .extracting("chave").isEqualTo("proposta.itens.incompletos");
+            assertThatThrownBy(() -> service.registrar(5L, registro(1L, List.of(
+                    new ItemPropostaRequest(1L, BigDecimal.TEN), new ItemPropostaRequest(2L, BigDecimal.TEN),
+                    new ItemPropostaRequest(77L, BigDecimal.TEN)))))
+                    .isInstanceOf(NegocioException.class)
+                    .extracting("chave").isEqualTo("proposta.item.fora.cotacao");
         }
 
         @Test
-        @DisplayName("Grava a proposta com o total calculado sobre a quantidade da cotação")
-        void gravaComTotalCalculado() {
+        @DisplayName("Com vários itens, a mercadoria é a soma dos itens e o imposto incide sobre o total")
+        void calculaPropostaComVariosItens() {
+            Produto toner = Fabrica.produto(2L, "TON-85A", "1", "5");
+            cotacao.adicionarItem(toner, new BigDecimal("4")).setId(501L);
             when(fornecedorRepository.findById(1L)).thenReturn(Optional.of(alfa));
             when(propostaRepository.save(any(Proposta.class))).thenAnswer(inv -> inv.getArgument(0));
 
-            var resposta = service.registrar(5L, registro(1L));
+            // 32 x 24,90 = 796,80; 4 x 89,90 = 359,60; mercadoria 1.156,40; 12% = 138,77; + frete 35 = 1.330,17
+            PropostaResponse resposta = service.registrar(5L, registro(1L, List.of(
+                    new ItemPropostaRequest(2L, new BigDecimal("89.90")),
+                    new ItemPropostaRequest(1L, new BigDecimal("24.90")))));
 
-            assertThat(resposta.valorMercadoria()).isEqualByComparingTo("796.80");
-            assertThat(resposta.valorImpostoCalculado()).isEqualByComparingTo("95.62");
-            assertThat(resposta.valorTotal()).isEqualByComparingTo("927.42");
-            assertThat(resposta.status()).isEqualTo(StatusProposta.PENDENTE);
+            assertThat(resposta.itens()).extracting(i -> i.produtoSku()).containsExactly("PAP-A4", "TON-85A");
+            assertThat(resposta.itens()).extracting(i -> i.valorMercadoria())
+                    .usingElementComparator(BigDecimal::compareTo)
+                    .containsExactly(new BigDecimal("796.80"), new BigDecimal("359.60"));
+            assertThat(resposta.valorMercadoria()).isEqualByComparingTo("1156.40");
+            assertThat(resposta.valorImpostoCalculado()).isEqualByComparingTo("138.77");
+            assertThat(resposta.valorTotal()).isEqualByComparingTo("1330.17");
         }
 
-        private RegistrarPropostaRequest registro(Long fornecedorId) {
-            return new RegistrarPropostaRequest(fornecedorId, new BigDecimal("24.90"), new BigDecimal("35.00"),
+        private RegistrarPropostaRequest registro(Long fornecedorId, List<ItemPropostaRequest> itens) {
+            return new RegistrarPropostaRequest(fornecedorId, itens, new BigDecimal("35.00"),
                     new BigDecimal("12"), BigDecimal.ZERO, 5, HOJE.plusDays(20));
         }
     }

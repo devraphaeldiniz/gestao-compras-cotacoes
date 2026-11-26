@@ -19,15 +19,14 @@ spring:
     enabled: true
     # db/seed traz dados de demonstração; os testes usam apenas db/migration
     locations: classpath:db/migration,classpath:db/seed
+  mail:
+    host: ${MAIL_HOST:localhost}
+    port: ${MAIL_PORT:1025}
   messages:
     basename: messages
     encoding: UTF-8
     fallback-to-system-locale: false
     use-code-as-default-message: false
-  jackson:
-    default-property-inclusion: always
-    serialization:
-      write-dates-as-timestamps: false
 
 server:
   port: ${PORT:8080}
@@ -53,12 +52,37 @@ springdoc:
     tags-sorter: alpha
 
 management:
+  # Em produção, use MANAGEMENT_SERVER_PORT=8081 (não publicado): o Prometheus coleta sem token pela porta interna.
+  # Na porta da aplicação, /actuator/prometheus exige perfil ADMIN.
   endpoints:
     web:
       discovery:
         enabled: false
       exposure:
-        include: health
+        include: health,prometheus
   endpoint:
     health:
       show-details: never
+  health:
+    # E-mail é acessório (falha só vai para o log): SMTP fora do ar não pode derrubar o health check
+    mail:
+      enabled: false
+
+app:
+  seguranca:
+    # Chave HMAC do JWT (mín. 32 caracteres). Vazia = chave aleatória a cada subida (só para desenvolvimento).
+    jwt-segredo: ${APP_JWT_SEGREDO:}
+    jwt-expiracao: ${APP_JWT_EXPIRACAO:8h}
+    # ADMIN criado na primeira subida se não existir nenhum usuário (senha vazia = não cria)
+    admin-username: ${APP_ADMIN_USERNAME:admin}
+    admin-senha: ${APP_ADMIN_SENHA:}
+    max-tentativas: 5
+    bloqueio: 15m
+  email:
+    # false = só registra no log o que seria enviado. No docker compose o envio vai para o Mailpit.
+    habilitado: ${EMAIL_HABILITADO:false}
+    remetente: ${EMAIL_REMETENTE:compras@empresa.exemplo}
+  prazos:
+    habilitado: ${APP_PRAZOS_HABILITADO:true}
+    # De hora em hora: cancela cotações vencidas sem 3 propostas válidas, avisa aprovadores e manda lembretes
+    cron: ${APP_PRAZOS_CRON:0 0 * * * *}

@@ -2,6 +2,7 @@ package com.compras.cotacoes;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.hasItems;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -9,281 +10,270 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.compras.cotacoes.cotacao.PrazosCotacaoService;
+import com.compras.cotacoes.support.Fabrica;
 import com.jayway.jsonpath.JsonPath;
-import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.ResultActions;
-import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
+import org.springframework.jdbc.core.JdbcTemplate;
 
-/**
- * Ciclo completo contra um PostgreSQL 16 real (Testcontainers), com as migrações Flyway de verdade
- * e só via HTTP: estoque mínimo -> cotação -> propostas -> decisão -> pedido -> recebimento.
- * Usa apenas db/migration (sem os dados de demonstração de db/seed).
- */
-@Testcontainers
-@AutoConfigureMockMvc
-@SpringBootTest(properties = "spring.flyway.locations=classpath:db/migration")
-class FluxoComprasIntegracaoTest {
-
-    @Container
-    @ServiceConnection
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
-
-    private static final LocalDate HOJE = LocalDate.now();
+/** Ciclo completo via HTTP contra PostgreSQL real, com autenticação por perfil. */
+class FluxoComprasIntegracaoTest extends IntegracaoBase {
 
     @Autowired
-    private MockMvc mockMvc;
+    private PrazosCotacaoService prazos;
 
     @Autowired
-    private ObjectMapper objectMapper;
+    private JdbcTemplate jdbc;
 
     @Test
-    @DisplayName("Fluxo completo: estoque mínimo, cotação, 3 propostas, decisão, pedido e recebimento")
+    @DisplayName("Ciclo completo: reposição consolidada, 3 propostas, decisão, recebimento parcial, extrato e histórico")
     void cicloCompletoDeCompra() throws Exception {
-        // 1. Fornecedores: 3 ativos e 1 inativado após o cadastro
-        long alfa = criarFornecedor("Alfa Suprimentos Ltda", "10.000.000/0001-01", 5);
-        long beta = criarFornecedor("Beta Distribuidora S.A.", "20000000000102", 2);
-        long gama = criarFornecedor("Gama Atacado ME", "30000000000103", 10);
-        long omega = criarFornecedor("Omega Comercial Eireli", "40000000000104", 1);
-        enviar(patch("/api/fornecedores/{id}/status", omega), Map.of("ativo", false))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.ativo").value(false));
-        String ativos = mockMvc.perform(get("/api/fornecedores?ativo=true")).andReturn().getResponse().getContentAsString();
-        assertThat(JsonPath.<List<Object>>read(ativos, "$[?(@.id == " + omega + ")]")).isEmpty();
+        long alfa = criarFornecedor("Alfa Suprimentos");
+        long beta = criarFornecedor("Beta Distribuidora");
+        long gama = criarFornecedor("Gama Atacado");
+        long omega = criarFornecedor("Omega Comercial");
+        mockMvc.perform(json(patch("/api/fornecedores/{id}/status", omega), "{\"ativo\":false}").with(comprador()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.ativo").value(false));
 
-        // 2. Produto acima do mínimo não gera cotação; a baixa até 15 (mínimo 20) gera uma RASCUNHO
-        long produtoId = id(enviar(post("/api/produtos"), Map.of(
-                "sku", "pap-a4-int", "nome", "Papel A4 integração", "unidade", "CX",
-                "saldoAtual", 50, "estoqueMinimo", 20))
+        // 1. Duas saídas abaixo do mínimo: a reposição consolida os dois produtos num único rascunho automático
+        long papel = criarProduto("FLX-PAPEL", "50", "20");
+        long toner = criarProduto("FLX-TONER", "30", "10");
+        saida(papel, 35); // saldo 15 -> (20 - 15) + 20 = 25
+        saida(toner, 25); // saldo 5  -> (10 - 5) + 10 = 15
+
+        String lista = mockMvc.perform(get("/api/cotacoes?produtoId={id}", papel).with(comprador()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.totalElementos").value(1))
+                .andReturn().getResponse().getContentAsString();
+        long cotacaoId = ((Number) JsonPath.read(lista, "$.conteudo[0].id")).longValue();
+        mockMvc.perform(get("/api/cotacoes/{id}", cotacaoId).with(comprador()))
+                .andExpect(jsonPath("$.status").value("RASCUNHO"))
+                .andExpect(jsonPath("$.origem").value("AUTOMATICA"))
+                .andExpect(jsonPath("$.itens", hasSize(2)))
+                .andExpect(jsonPath("$.itens[?(@.produtoSku == 'FLX-PAPEL')].quantidade").value(25.0))
+                .andExpect(jsonPath("$.itens[?(@.produtoSku == 'FLX-TONER')].quantidade").value(15.0));
+
+        // 2. Abre convidando 3 fornecedores ativos
+        mockMvc.perform(json(patch("/api/cotacoes/{id}/abrir", cotacaoId),
+                        "{\"fornecedoresIds\":[%d,%d,%d],\"dataLimite\":\"%s\"}".formatted(alfa, beta, gama, LocalDate.now().plusDays(7)))
+                        .with(comprador()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("ABERTA"));
+
+        // 3. Propostas com preço por item; com 2 a decisão é bloqueada; comprador não decide (segregação de funções)
+        List<Long> produtos = List.of(papel, toner);
+        // Alfa: 25x20 + 15x20 = 800 + frete 30 + 12% (96) = 926,00
+        mockMvc.perform(json(post("/api/cotacoes/{id}/propostas", cotacaoId), proposta(alfa, produtos, "20", 5, "30"))
+                        .with(comprador()))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.sku").value("PAP-A4-INT"))
-                .andExpect(jsonPath("$.necessitaCompra").value(false)));
-        assertThat(cotacoesDoProduto(produtoId)).isEmpty();
+                .andExpect(jsonPath("$.itens", hasSize(2)))
+                .andExpect(jsonPath("$.valorMercadoria").value(800.0))
+                .andExpect(jsonPath("$.valorTotal").value(926.0));
+        mockMvc.perform(json(post("/api/cotacoes/{id}/propostas", cotacaoId), proposta(beta, produtos, "19", 2, "80"))
+                        .with(comprador()))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.valorTotal").value(931.2));
+        mockMvc.perform(json(post("/api/cotacoes/{id}/propostas", cotacaoId), proposta(omega, produtos, "10", 1, "0"))
+                        .with(comprador()))
+                .andExpect(status().isUnprocessableContent());
 
-        enviar(patch("/api/produtos/{id}/estoque", produtoId), Map.of("tipo", "SAIDA", "quantidade", 35))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.necessitaCompra").value(true));
-
-        List<Map<String, Object>> cotacoes = cotacoesDoProduto(produtoId);
-        assertThat(cotacoes).hasSize(1);
-        Map<String, Object> rascunho = cotacoes.getFirst();
-        assertThat(rascunho).containsEntry("status", "RASCUNHO");
-        assertThat(rascunho.get("codigo").toString()).matches("COT-\\d{4}-\\d{5}");
-        assertThat(decimal(rascunho.get("quantidade"))).isEqualByComparingTo("25"); // (20 - 15) + 20
-        long cotacaoId = ((Number) rascunho.get("id")).longValue();
-
-        // Nova baixa não duplica a cotação em andamento
-        enviar(patch("/api/produtos/{id}/estoque", produtoId), Map.of("tipo", "SAIDA", "quantidade", 5))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.saldoAtual").value(10.0));
-        assertThat(cotacoesDoProduto(produtoId)).hasSize(1);
-
-        // Proposta em cotação RASCUNHO é recusada
-        registrarProposta(cotacaoId, alfa, "24.90", "35.00", "12", "0", 5)
-                .andExpect(status().isUnprocessableEntity());
-
-        // 3. Abre a cotação convidando os 3 fornecedores ativos
-        enviar(patch("/api/cotacoes/{id}/abrir", cotacaoId), Map.of(
-                "fornecedoresIds", List.of(alfa, beta, gama), "dataLimite", HOJE.plusDays(7).toString()))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("ABERTA"))
-                .andExpect(jsonPath("$.fornecedoresConvidados.length()").value(3))
-                .andExpect(jsonPath("$.podeDecidir").value(false));
-
-        // Fornecedor inativo não pode enviar proposta
-        registrarProposta(cotacaoId, omega, "20.00", "0", "0", "0", 1)
-                .andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.mensagem").value(containsString("inativo")));
-
-        // 4. Duas propostas: a decisão ainda é bloqueada com 422
-        //    Alfa: 25 x 24,90 = 622,50 + frete 35,00 + 12% (74,70) = 732,20
-        long propostaAlfa = id(registrarProposta(cotacaoId, alfa, "24.90", "35.00", "12", "0", 5)
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.valorMercadoria").value(622.50))
-                .andExpect(jsonPath("$.valorImpostoCalculado").value(74.70))
-                .andExpect(jsonPath("$.valorTotal").value(732.20)));
-        //    Beta: 587,50 + frete 80,00 + (70,50 + fixo 10,00) = 748,00
-        registrarProposta(cotacaoId, beta, "23.50", "80.00", "12", "10.00", 2)
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.valorTotal").value(748.00));
-
-        // Mesmo fornecedor não envia duas propostas para a mesma cotação
-        registrarProposta(cotacaoId, beta, "23.00", "80.00", "12", "10.00", 2)
-                .andExpect(status().isConflict());
-
-        enviar(post("/api/cotacoes/{id}/decidir", cotacaoId), Map.of("criterio", "MENOR_PRECO"))
-                .andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.status").value(422))
+        mockMvc.perform(json(post("/api/cotacoes/{id}/decidir", cotacaoId), "{}").with(aprovador()))
+                .andExpect(status().isUnprocessableContent())
                 .andExpect(jsonPath("$.mensagem").value(containsString("no mínimo 3 propostas válidas")));
 
-        // 5. Terceira proposta. Gama: 572,50 + frete 120,00 + 68,70 = 761,20
-        registrarProposta(cotacaoId, gama, "22.90", "120.00", "12", "0", 10)
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.valorTotal").value(761.20));
+        mockMvc.perform(json(post("/api/cotacoes/{id}/propostas", cotacaoId), proposta(gama, produtos, "21", 10, "0"))
+                        .with(comprador()))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.valorTotal").value(940.8));
+        mockMvc.perform(json(post("/api/cotacoes/{id}/decidir", cotacaoId), "{}").with(comprador()))
+                .andExpect(status().isForbidden());
 
-        mockMvc.perform(get("/api/cotacoes/{id}", cotacaoId))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.propostas.length()").value(3))
-                .andExpect(jsonPath("$.propostasElegiveis").value(3))
-                .andExpect(jsonPath("$.podeDecidir").value(true))
-                .andExpect(jsonPath("$.recomendacaoMenorPreco.propostaRecomendadaId").value(propostaAlfa))
-                .andExpect(jsonPath("$.recomendacaoPontuacaoPonderada.ranking.length()").value(3));
-
-        String decisao = enviar(post("/api/cotacoes/{id}/decidir", cotacaoId), Map.of("criterio", "MENOR_PRECO"))
+        // 4. Decisão pelo aprovador: pedido com os 2 itens e custo efetivo rateado
+        String decisao = mockMvc.perform(json(post("/api/cotacoes/{id}/decidir", cotacaoId), "{\"criterio\":\"MENOR_PRECO\"}")
+                        .with(aprovador()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.statusCotacao").value("FECHADA"))
-                .andExpect(jsonPath("$.propostaVencedora.id").value(propostaAlfa))
-                .andExpect(jsonPath("$.propostaVencedora.status").value("VENCEDORA"))
-                .andExpect(jsonPath("$.escolhaManual").value(false))
                 .andExpect(jsonPath("$.pedidoCompra.status").value("EMITIDO"))
-                .andExpect(jsonPath("$.pedidoCompra.valorTotal").value(732.20))
-                .andExpect(jsonPath("$.pedidoCompra.fornecedorId").value(alfa))
+                .andExpect(jsonPath("$.pedidoCompra.valorTotal").value(926.0))
+                .andExpect(jsonPath("$.pedidoCompra.emitidoPor").value("aprovador"))
+                .andExpect(jsonPath("$.pedidoCompra.itens", hasSize(2)))
+                // papel: (500 + 126 x 500/800) / 25 = 23,15
+                .andExpect(jsonPath("$.pedidoCompra.itens[?(@.produtoSku == 'FLX-PAPEL')].custoUnitarioEfetivo").value(23.15))
                 .andReturn().getResponse().getContentAsString();
         long pedidoId = ((Number) JsonPath.read(decisao, "$.pedidoCompra.id")).longValue();
-        assertThat(JsonPath.<String>read(decisao, "$.pedidoCompra.numeroPedido")).matches("PC-\\d{4}-\\d{5}");
-
-        mockMvc.perform(get("/api/cotacoes/{id}", cotacaoId))
-                .andExpect(jsonPath("$.status").value("FECHADA"))
-                .andExpect(jsonPath("$.propostaVencedoraId").value(propostaAlfa))
+        mockMvc.perform(get("/api/cotacoes/{id}", cotacaoId).with(comprador()))
+                .andExpect(jsonPath("$.decididoPor").value("aprovador"))
+                .andExpect(jsonPath("$.criterioDecisao").value("MENOR_PRECO"))
                 .andExpect(jsonPath("$.propostas[?(@.status == 'REJEITADA')]", hasSize(2)));
 
-        // 6. Recebimento: saldo 10 + 25 = 35; custo efetivo = 732,20 / 25 = 29,2880
-        mockMvc.perform(post("/api/pedidos-compra/{id}/receber", pedidoId))
+        // 5. Recebimento parcial e depois o restante
+        mockMvc.perform(json(post("/api/pedidos-compra/{id}/receber", pedidoId),
+                        "{\"itens\":[{\"produtoId\":%d,\"quantidade\":10}]}".formatted(papel)).with(aprovador()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("RECEBIDO"))
-                .andExpect(jsonPath("$.dataRecebimento").isNotEmpty());
+                .andExpect(jsonPath("$.status").value("PARCIALMENTE_RECEBIDO"))
+                .andExpect(jsonPath("$.itens[?(@.produtoSku == 'FLX-PAPEL')].quantidadePendente").value(15.0));
+        assertThat(saldo(papel)).isEqualByComparingTo("25");
+        mockMvc.perform(post("/api/pedidos-compra/{id}/receber", pedidoId).with(aprovador()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("RECEBIDO"));
+        assertThat(saldo(papel)).isEqualByComparingTo("40");
+        assertThat(saldo(toner)).isEqualByComparingTo("20");
+        mockMvc.perform(get("/api/produtos/{id}", papel).with(comprador()))
+                .andExpect(jsonPath("$.precoMedioCompra").value(23.15))
+                .andExpect(jsonPath("$.necessitaCompra").value(false));
 
-        String produtos = mockMvc.perform(get("/api/produtos")).andReturn().getResponse().getContentAsString();
-        Map<String, Object> produto = JsonPath.<List<Map<String, Object>>>read(
-                produtos, "$[?(@.id == " + produtoId + ")]").getFirst();
-        assertThat(decimal(produto.get("saldoAtual"))).isEqualByComparingTo("35");
-        assertThat(decimal(produto.get("ultimoPrecoCompra"))).isEqualByComparingTo("29.2880");
-        assertThat(decimal(produto.get("precoMedioCompra"))).isEqualByComparingTo("29.2880");
-        assertThat(produto).containsEntry("necessitaCompra", false);
+        // 6. Extrato e histórico contam a história inteira
+        mockMvc.perform(get("/api/produtos/{id}/movimentacoes", papel).with(comprador()))
+                .andExpect(jsonPath("$.totalElementos").value(4))
+                .andExpect(jsonPath("$.conteudo[*].tipo", hasItems("RECEBIMENTO", "SAIDA", "SALDO_INICIAL")))
+                .andExpect(jsonPath("$.conteudo[0].tipo").value("RECEBIMENTO"))
+                .andExpect(jsonPath("$.conteudo[0].usuario").value("aprovador"));
+        mockMvc.perform(get("/api/cotacoes/{id}/historico", cotacaoId).with(comprador()))
+                .andExpect(jsonPath("$[*].acao", hasItems("COTACAO_CRIADA", "COTACAO_ITEM_ADICIONADO", "COTACAO_ABERTA",
+                        "PROPOSTA_REGISTRADA", "COTACAO_DECIDIDA")))
+                .andExpect(jsonPath("$[?(@.acao == 'COTACAO_DECIDIDA')].usuario").value("aprovador"));
+        mockMvc.perform(get("/api/pedidos-compra/{id}/historico", pedidoId).with(aprovador()))
+                .andExpect(jsonPath("$[?(@.acao == 'PEDIDO_RECEBIMENTO')]", hasSize(2)));
 
-        // Não é possível receber o mesmo pedido duas vezes
-        mockMvc.perform(post("/api/pedidos-compra/{id}/receber", pedidoId))
-                .andExpect(status().isUnprocessableEntity());
-
-        // 7. Mensagens de erro localizadas pelo Accept-Language
-        mockMvc.perform(post("/api/cotacoes/{id}/decidir", cotacaoId)
-                        .header(HttpHeaders.ACCEPT_LANGUAGE, "en")
-                        .contentType(MediaType.APPLICATION_JSON).content("{}"))
-                .andExpect(status().isUnprocessableEntity())
+        // 7. Erros localizados pelo Accept-Language
+        mockMvc.perform(json(post("/api/cotacoes/{id}/decidir", cotacaoId), "{}").with(aprovador())
+                        .header(HttpHeaders.ACCEPT_LANGUAGE, "en"))
                 .andExpect(jsonPath("$.mensagem").value(containsString("is not OPEN")));
-
-        mockMvc.perform(post("/api/cotacoes/{id}/decidir", cotacaoId)
-                        .header(HttpHeaders.ACCEPT_LANGUAGE, "pt-BR")
-                        .contentType(MediaType.APPLICATION_JSON).content("{}"))
-                .andExpect(status().isUnprocessableEntity())
+        mockMvc.perform(json(post("/api/cotacoes/{id}/decidir", cotacaoId), "{}").with(aprovador())
+                        .header(HttpHeaders.ACCEPT_LANGUAGE, "pt-BR"))
                 .andExpect(jsonPath("$.mensagem").value(containsString("não está ABERTA")));
     }
 
     @Test
-    @DisplayName("Erros de validação e de recurso inexistente saem no idioma pedido (header ou ?lang=)")
-    void mensagensLocalizadas() throws Exception {
-        String invalido = "{\"sku\":\"\",\"nome\":\"x\",\"unidade\":\"UN\",\"saldoAtual\":-1,\"estoqueMinimo\":1}";
+    @DisplayName("Cancelamentos: cotação pelo comprador e saldo de pedido pelo aprovador, sempre com motivo")
+    void cancelamentos() throws Exception {
+        long produto = criarProduto("FLX-CANC", "100", "1");
+        long cotacaoId = criarCotacaoAberta(produto, 10);
+        mockMvc.perform(cancelamento("/api/cotacoes/{id}/cancelar", cotacaoId, "").with(comprador()))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(cancelamento("/api/cotacoes/{id}/cancelar", cotacaoId, "Demanda suspensa").with(comprador()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELADA"))
+                .andExpect(jsonPath("$.motivoCancelamento").value("Demanda suspensa"))
+                .andExpect(jsonPath("$.canceladoPor").value("comprador"));
+        mockMvc.perform(cancelamento("/api/cotacoes/{id}/cancelar", cotacaoId, "De novo").with(comprador()))
+                .andExpect(status().isUnprocessableContent());
 
-        mockMvc.perform(post("/api/produtos").header(HttpHeaders.ACCEPT_LANGUAGE, "en-US")
-                        .contentType(MediaType.APPLICATION_JSON).content(invalido))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.mensagem").value("The request contains invalid fields"))
-                .andExpect(jsonPath("$.campos[?(@.campo == 'sku')].mensagem").value("is required"))
-                .andExpect(jsonPath("$.campos[?(@.campo == 'saldoAtual')].mensagem").value("must not be negative"));
-
-        mockMvc.perform(post("/api/produtos").header(HttpHeaders.ACCEPT_LANGUAGE, "pt-BR")
-                        .contentType(MediaType.APPLICATION_JSON).content(invalido))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.mensagem").value("Há campos inválidos na requisição"))
-                .andExpect(jsonPath("$.campos[?(@.campo == 'sku')].mensagem").value("é obrigatório"));
-
-        // ?lang= tem prioridade sobre o header
-        mockMvc.perform(get("/api/cotacoes/{id}?lang=en", 987654).header(HttpHeaders.ACCEPT_LANGUAGE, "pt-BR"))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.mensagem").value("Quotation 987654 not found"));
-
-        // Sem header: português é o padrão
-        mockMvc.perform(get("/api/cotacoes/{id}", 987654))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.mensagem").value("Cotação 987654 não encontrada"));
+        long pedidoId = pedidoEmitido("FLX-PED-CANC");
+        mockMvc.perform(cancelamento("/api/pedidos-compra/{id}/cancelar", pedidoId, "Fornecedor sem estoque").with(comprador()))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(cancelamento("/api/pedidos-compra/{id}/cancelar", pedidoId, "Fornecedor sem estoque").with(aprovador()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("CANCELADO"));
+        mockMvc.perform(post("/api/pedidos-compra/{id}/receber", pedidoId).with(aprovador()))
+                .andExpect(status().isUnprocessableContent());
     }
 
     @Test
-    @DisplayName("SKU e documento duplicados retornam 409; produto criado já no mínimo gera cotação na hora")
-    void conflitosERegraANoCadastro() throws Exception {
-        Map<String, Object> produto = Map.of("sku", "TON-DUP", "nome", "Toner", "unidade", "UN",
-                "saldoAtual", 2, "estoqueMinimo", 5);
-        long produtoId = id(enviar(post("/api/produtos"), produto)
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.necessitaCompra").value(true)));
-        enviar(post("/api/produtos"), produto)
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.mensagem").value(containsString("TON-DUP")));
+    @DisplayName("Produto não entra em duas cotações em andamento; o mesmo produto em duas linhas é recusado")
+    void produtoEmUmaCotacaoPorVez() throws Exception {
+        long produto = criarProduto("FLX-UNICO", "100", "1");
+        criarCotacaoAberta(produto, 5);
+        mockMvc.perform(json(post("/api/cotacoes"), "{\"itens\":[{\"produtoId\":%d,\"quantidade\":3}]}".formatted(produto))
+                        .with(comprador()))
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.mensagem").value(containsString("FLX-UNICO")));
+        long outro = criarProduto("FLX-DUPLO", "100", "1");
+        mockMvc.perform(json(post("/api/cotacoes"),
+                        "{\"itens\":[{\"produtoId\":%d,\"quantidade\":1},{\"produtoId\":%d,\"quantidade\":2}]}".formatted(outro, outro))
+                        .with(comprador()))
+                .andExpect(status().isUnprocessableContent());
+    }
 
-        List<Map<String, Object>> cotacoes = cotacoesDoProduto(produtoId);
-        assertThat(cotacoes).hasSize(1);
-        assertThat(decimal(cotacoes.getFirst().get("quantidade"))).isEqualByComparingTo("8"); // (5 - 2) + 5
+    @Test
+    @DisplayName("Prazos: cotação vencida sem 3 propostas é cancelada; com 3 fica pronta para decisão")
+    void prazosAutomaticos() throws Exception {
+        long semPropostas = criarCotacaoAberta(criarProduto("FLX-PRAZO-1", "100", "1"), 5);
+        long produto = criarProduto("FLX-PRAZO-2", "100", "1");
+        long completa = criarCotacaoAberta(produto, 5);
+        for (int i = 0; i < 3; i++) {
+            mockMvc.perform(json(post("/api/cotacoes/{id}/propostas", completa),
+                            proposta(criarFornecedor("Prazo " + i), List.of(produto), "10", 3, "0")).with(comprador()))
+                    .andExpect(status().isCreated());
+        }
+        jdbc.update("update cotacoes set data_limite = ? where id in (?, ?)", LocalDate.now().minusDays(1), semPropostas, completa);
 
-        criarFornecedor("Duplicado Ltda", "55555555000155", 3);
-        enviar(post("/api/fornecedores"), Map.of("razaoSocial", "Outro", "documento", "55.555.555/0001-55",
-                "email", "outro@teste.exemplo", "prazoMedioDias", 1))
+        PrazosCotacaoService.Resultado resultado = prazos.processar();
+
+        assertThat(resultado.canceladas()).isGreaterThanOrEqualTo(1);
+        assertThat(resultado.prontasParaDecisao()).isGreaterThanOrEqualTo(1);
+        mockMvc.perform(get("/api/cotacoes/{id}", semPropostas).with(comprador()))
+                .andExpect(jsonPath("$.status").value("CANCELADA"))
+                .andExpect(jsonPath("$.canceladoPor").value("sistema"));
+        mockMvc.perform(get("/api/cotacoes/{id}", completa).with(comprador()))
+                .andExpect(jsonPath("$.status").value("ABERTA"))
+                .andExpect(jsonPath("$.prazoEncerradoEm").isNotEmpty())
+                .andExpect(jsonPath("$.podeDecidir").value(true));
+    }
+
+    @Test
+    @DisplayName("Validação e 404 no idioma pedido (header ou ?lang=), CPF/CNPJ com dígito verificador e 409 em duplicidade")
+    void mensagensEValidacoes() throws Exception {
+        String invalido = "{\"sku\":\"\",\"nome\":\"x\",\"unidade\":\"UN\",\"saldoAtual\":-1,\"estoqueMinimo\":1}";
+        mockMvc.perform(json(post("/api/produtos"), invalido).with(comprador()).header(HttpHeaders.ACCEPT_LANGUAGE, "en-US"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.campos[?(@.campo == 'sku')].mensagem").value("is required"));
+        mockMvc.perform(json(post("/api/produtos"), invalido).with(comprador()).header(HttpHeaders.ACCEPT_LANGUAGE, "pt-BR"))
+                .andExpect(jsonPath("$.campos[?(@.campo == 'sku')].mensagem").value("é obrigatório"));
+        mockMvc.perform(get("/api/cotacoes/{id}?lang=en", 987654).with(comprador()))
+                .andExpect(status().isNotFound()).andExpect(jsonPath("$.mensagem").value("Quotation 987654 not found"));
+        mockMvc.perform(get("/api/cotacoes/{id}", 987654).with(comprador()))
+                .andExpect(jsonPath("$.mensagem").value("Cotação 987654 não encontrada"));
+
+        String documento = Fabrica.cnpj(proximo());
+        String fornecedor = "{\"razaoSocial\":\"Dup\",\"documento\":\"%s\",\"email\":\"d@t.co\",\"prazoMedioDias\":1}";
+        mockMvc.perform(json(post("/api/fornecedores"), fornecedor.formatted(documento)).with(comprador()))
+                .andExpect(status().isCreated());
+        mockMvc.perform(json(post("/api/fornecedores"), fornecedor.formatted(documento)).with(comprador()))
                 .andExpect(status().isConflict());
+        mockMvc.perform(json(post("/api/fornecedores"), fornecedor.formatted("11222333000182")).with(comprador()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.campos[0].campo").value("documento"));
+
+        mockMvc.perform(json(post("/api/produtos"), "{\"sku\":\"FLX-DUP\",\"nome\":\"x\",\"unidade\":\"UN\",\"saldoAtual\":5,\"estoqueMinimo\":1}")
+                        .with(comprador())).andExpect(status().isCreated());
+        mockMvc.perform(json(post("/api/produtos"), "{\"sku\":\"flx-dup\",\"nome\":\"x\",\"unidade\":\"UN\",\"saldoAtual\":5,\"estoqueMinimo\":1}")
+                        .with(comprador())).andExpect(status().isConflict());
     }
 
-    // ------------------------------------------------------------------ utilitários
-
-    private long criarFornecedor(String razaoSocial, String documento, int prazo) throws Exception {
-        String email = razaoSocial.split(" ")[0].toLowerCase() + "@teste.exemplo";
-        return id(enviar(post("/api/fornecedores"), Map.of(
-                "razaoSocial", razaoSocial, "documento", documento, "email", email, "prazoMedioDias", prazo))
-                .andExpect(status().isCreated()));
+    @Test
+    @DisplayName("Listagens paginadas com tamanho limitado a 100 e busca por texto")
+    void paginacao() throws Exception {
+        for (int i = 0; i < 3; i++) {
+            criarProduto("FLX-PAG-" + i, "10", "1");
+        }
+        mockMvc.perform(get("/api/produtos?busca=flx-pag&tamanho=2").with(comprador()))
+                .andExpect(jsonPath("$.conteudo", hasSize(2)))
+                .andExpect(jsonPath("$.totalElementos").value(3))
+                .andExpect(jsonPath("$.totalPaginas").value(2));
+        mockMvc.perform(get("/api/produtos?busca=flx-pag&tamanho=2&pagina=1").with(comprador()))
+                .andExpect(jsonPath("$.conteudo", hasSize(1)));
+        mockMvc.perform(get("/api/fornecedores?tamanho=5000").with(comprador()))
+                .andExpect(jsonPath("$.tamanho").value(100));
     }
 
-    private ResultActions registrarProposta(long cotacaoId, long fornecedorId, String preco, String frete,
-                                            String percentual, String fixo, int prazo) throws Exception {
-        return enviar(post("/api/cotacoes/{id}/propostas", cotacaoId), Map.of(
-                "fornecedorId", fornecedorId,
-                "precoUnitario", new BigDecimal(preco),
-                "valorFrete", new BigDecimal(frete),
-                "impostoPercentual", new BigDecimal(percentual),
-                "valorImpostoFixo", new BigDecimal(fixo),
-                "prazoEntregaDias", prazo,
-                "dataValidade", HOJE.plusDays(30).toString()));
+    private void saida(long produtoId, int quantidade) throws Exception {
+        mockMvc.perform(json(patch("/api/produtos/{id}/estoque", produtoId),
+                        "{\"tipo\":\"SAIDA\",\"quantidade\":%d,\"observacao\":\"Requisição interna\"}".formatted(quantidade))
+                        .with(comprador()))
+                .andExpect(status().isOk());
     }
 
-    private List<Map<String, Object>> cotacoesDoProduto(long produtoId) throws Exception {
-        String json = mockMvc.perform(get("/api/cotacoes")).andExpect(status().isOk())
-                .andReturn().getResponse().getContentAsString();
-        return JsonPath.read(json, "$[?(@.produtoId == " + produtoId + ")]");
-    }
-
-    private ResultActions enviar(MockHttpServletRequestBuilder requisicao, Object corpo) throws Exception {
-        return mockMvc.perform(requisicao
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(corpo)));
-    }
-
-    private static long id(ResultActions resultado) throws Exception {
-        String json = resultado.andReturn().getResponse().getContentAsString();
-        return ((Number) JsonPath.read(json, "$.id")).longValue();
-    }
-
-    private static BigDecimal decimal(Object valor) {
-        return new BigDecimal(valor.toString());
+    private long pedidoEmitido(String sku) throws Exception {
+        long produto = criarProduto(sku, "100", "1");
+        long cotacao = criarCotacaoAberta(produto, 10);
+        for (int i = 0; i < 3; i++) {
+            mockMvc.perform(json(post("/api/cotacoes/{id}/propostas", cotacao),
+                    proposta(criarFornecedor(sku + " F" + i), List.of(produto), String.valueOf(10 + i), 3, "0")).with(comprador()));
+        }
+        String decisao = mockMvc.perform(json(post("/api/cotacoes/{id}/decidir", cotacao), "{}")
+                        .contentType(MediaType.APPLICATION_JSON).with(aprovador()))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        return ((Number) JsonPath.read(decisao, "$.pedidoCompra.id")).longValue();
     }
 }

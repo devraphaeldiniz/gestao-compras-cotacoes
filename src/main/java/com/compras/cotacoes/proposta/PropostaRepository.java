@@ -9,7 +9,8 @@ import org.springframework.data.repository.query.Param;
 
 public interface PropostaRepository extends JpaRepository<Proposta, Long> {
 
-    @EntityGraph(attributePaths = "fornecedor")
+    /** Fornecedor e itens (com produto) numa consulta: o detalhe da cotação não dispara N+1. */
+    @EntityGraph(attributePaths = {"fornecedor", "itens", "itens.cotacaoItem", "itens.cotacaoItem.produto"})
     List<Proposta> findByCotacaoIdOrderByIdAsc(Long cotacaoId);
 
     boolean existsByCotacaoIdAndFornecedorId(Long cotacaoId, Long fornecedorId);

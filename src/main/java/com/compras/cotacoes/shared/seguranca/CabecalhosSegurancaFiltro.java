@@ -2,7 +2,7 @@ package com.compras.cotacoes.shared.seguranca;
 
 import com.compras.cotacoes.shared.exception.ErroRespostaDTO;
 import com.compras.cotacoes.shared.i18n.MensagemService;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -81,7 +81,7 @@ public class CabecalhosSegurancaFiltro extends OncePerRequestFilter {
     }
 
     private void responderCorpoMuitoGrande(HttpServletRequest request, HttpServletResponse response) throws IOException {
-        HttpStatus status = HttpStatus.PAYLOAD_TOO_LARGE;
+        HttpStatus status = HttpStatus.CONTENT_TOO_LARGE;
         ErroRespostaDTO corpo = new ErroRespostaDTO(OffsetDateTime.now(), status.value(), status.getReasonPhrase(),
                 mensagens.obter("erro.corpo.muito.grande", LIMITE_CORPO_BYTES / 1024), request.getRequestURI(), List.of());
         response.setStatus(status.value());

@@ -1,15 +1,20 @@
 package com.compras.cotacoes.proposta;
 
 import com.compras.cotacoes.cotacao.Cotacao;
+import com.compras.cotacoes.cotacao.CotacaoItem;
 import com.compras.cotacoes.cotacao.CotacaoRepository;
 import com.compras.cotacoes.cotacao.StatusCotacao;
 import com.compras.cotacoes.fornecedor.Fornecedor;
 import com.compras.cotacoes.fornecedor.FornecedorRepository;
+import com.compras.cotacoes.historico.AcaoHistorico;
+import com.compras.cotacoes.historico.EntidadeHistorico;
+import com.compras.cotacoes.historico.HistoricoService;
 import com.compras.cotacoes.pedido.PedidoCompra;
 import com.compras.cotacoes.pedido.PedidoCompraMapper;
 import com.compras.cotacoes.pedido.PedidoCompraService;
 import com.compras.cotacoes.proposta.AvaliadorPropostasService.PropostaAvaliada;
 import com.compras.cotacoes.proposta.dto.DecidirCotacaoRequest;
+import com.compras.cotacoes.proposta.dto.ItemPropostaRequest;
 import com.compras.cotacoes.proposta.dto.PropostaResponse;
 import com.compras.cotacoes.proposta.dto.RegistrarPropostaRequest;
 import com.compras.cotacoes.proposta.dto.ResultadoDecisaoResponse;
@@ -17,9 +22,14 @@ import com.compras.cotacoes.shared.exception.ConflitoException;
 import com.compras.cotacoes.shared.exception.NegocioException;
 import com.compras.cotacoes.shared.exception.RecursoNaoEncontradoException;
 import com.compras.cotacoes.shared.i18n.MensagemService;
+import com.compras.cotacoes.shared.metricas.MetricasCompras;
+import com.compras.cotacoes.shared.seguranca.UsuarioAtual;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
@@ -50,9 +60,15 @@ public class PropostaService {
     private final PropostaMapper propostaMapper;
     private final PedidoCompraMapper pedidoCompraMapper;
     private final MensagemService mensagens;
+    private final HistoricoService historico;
+    private final MetricasCompras metricas;
+    private final UsuarioAtual usuarioAtual;
     private final Clock clock;
 
-    /** Regra C: valida a cotação e o fornecedor e grava a proposta com o valor total já calculado. */
+    /**
+     * Regra C: valida cotação e fornecedor, exige preço para todos os itens da cotação e grava a proposta
+     * com mercadoria, imposto e total já calculados.
+     */
     @Transactional
     public PropostaResponse registrar(Long cotacaoId, RegistrarPropostaRequest request) {
         Cotacao cotacao = buscarCotacao(cotacaoId);
@@ -64,7 +80,6 @@ public class PropostaService {
         if (cotacao.getDataLimite() != null && hoje.isAfter(cotacao.getDataLimite())) {
             throw new NegocioException("cotacao.prazo.encerrado", cotacao.getCodigo(), cotacao.getDataLimite());
         }
-
         Fornecedor fornecedor = fornecedorRepository.findById(request.fornecedorId())
                 .orElseThrow(() -> new RecursoNaoEncontradoException("fornecedor.nao.encontrado", request.fornecedorId()));
         if (!fornecedor.isAtivo()) {
@@ -80,10 +95,15 @@ public class PropostaService {
             throw new NegocioException("proposta.validade.passada");
         }
 
+        List<CotacaoItem> itensCotados = itensNaOrdemDaCotacao(cotacao, request.itens());
+        Map<Long, BigDecimal> precoPorProduto = new HashMap<>();
+        request.itens().forEach(i -> precoPorProduto.put(i.produtoId(), i.precoUnitario()));
+        List<CalculadoraPropostaService.Linha> linhas = itensCotados.stream()
+                .map(i -> new CalculadoraPropostaService.Linha(i.getQuantidade(), precoPorProduto.get(i.getProduto().getId())))
+                .toList();
         CalculadoraPropostaService.ResultadoCalculo calculo = calculadora.calcular(
-                cotacao.getQuantidade(), request.precoUnitario(), request.valorFrete(),
-                request.impostoPercentual(), request.valorImpostoFixo());
-        // A coluna valor_total é NUMERIC(19,2): sem esta checagem o overflow viraria erro de banco
+                linhas, request.valorFrete(), request.impostoPercentual(), request.valorImpostoFixo());
+        // As colunas de valor são NUMERIC(19,2): sem esta checagem o overflow viraria erro de banco
         if (calculo.valorTotal().compareTo(VALOR_TOTAL_MAXIMO) >= 0) {
             throw new NegocioException("proposta.valor.excede.limite");
         }
@@ -91,7 +111,10 @@ public class PropostaService {
         Proposta proposta = new Proposta();
         proposta.setCotacao(cotacao);
         proposta.setFornecedor(fornecedor);
-        proposta.setPrecoUnitario(request.precoUnitario());
+        for (int i = 0; i < itensCotados.size(); i++) {
+            proposta.adicionarItem(itensCotados.get(i), linhas.get(i).precoUnitario(), calculo.mercadoriaPorItem().get(i));
+        }
+        proposta.setValorMercadoria(calculo.valorMercadoria());
         proposta.setValorFrete(zeroSeNulo(request.valorFrete()));
         proposta.setImpostoPercentual(zeroSeNulo(request.impostoPercentual()));
         proposta.setValorImpostoFixo(zeroSeNulo(request.valorImpostoFixo()));
@@ -101,7 +124,10 @@ public class PropostaService {
         proposta.setDataValidade(request.dataValidade());
         proposta.setStatus(StatusProposta.PENDENTE);
 
-        return propostaMapper.paraResposta(propostaRepository.save(proposta));
+        Proposta salva = propostaRepository.save(proposta);
+        historico.registrar(EntidadeHistorico.COTACAO, cotacao.getId(), AcaoHistorico.PROPOSTA_REGISTRADA,
+                "%s total=%s".formatted(fornecedor.getRazaoSocial(), salva.getValorTotal().toPlainString()));
+        return propostaMapper.paraResposta(salva);
     }
 
     /**
@@ -137,12 +163,19 @@ public class PropostaService {
 
         cotacao.setStatus(StatusCotacao.FECHADA);
         cotacao.setPropostaVencedoraId(vencedora.proposta().getId());
+        cotacao.setCriterioDecisao(criterio);
+        cotacao.setDecididoPor(usuarioAtual.username());
+        cotacao.setDecididoEm(LocalDateTime.now(clock));
         propostaRepository.saveAll(propostas);
         cotacaoRepository.save(cotacao);
 
         PedidoCompra pedido = pedidoCompraService.emitir(cotacao, vencedora.proposta());
-        log.info("Cotação {} decidida por {}: proposta {} venceu, pedido {} emitido",
-                cotacao.getCodigo(), criterio, vencedora.proposta().getId(), pedido.getNumeroPedido());
+        historico.registrar(EntidadeHistorico.COTACAO, cotacao.getId(), AcaoHistorico.COTACAO_DECIDIDA,
+                "%s criterio=%s escolhaManual=%s pedido=%s".formatted(vencedora.proposta().getFornecedor().getRazaoSocial(),
+                        criterio, escolhaManual, pedido.getNumeroPedido()));
+        metricas.cotacaoDecidida(criterio.name(), escolhaManual);
+        log.info("Cotação {} decidida por {} ({}): proposta {} venceu, pedido {} emitido",
+                cotacao.getCodigo(), usuarioAtual.username(), criterio, vencedora.proposta().getId(), pedido.getNumeroPedido());
 
         return new ResultadoDecisaoResponse(
                 cotacao.getId(),
@@ -155,6 +188,27 @@ public class PropostaService {
                 propostaMapper.paraResposta(vencedora.proposta()),
                 ranking.stream().map(propostaMapper::paraItemRanking).toList(),
                 pedidoCompraMapper.paraResposta(pedido));
+    }
+
+    /** Cada item da cotação precisa de exatamente um preço; produto fora da cotação é recusado. */
+    private static List<CotacaoItem> itensNaOrdemDaCotacao(Cotacao cotacao, List<ItemPropostaRequest> itens) {
+        Map<Long, Integer> contagem = new HashMap<>();
+        for (ItemPropostaRequest item : itens) {
+            if (cotacao.itemDoProduto(item.produtoId()).isEmpty()) {
+                throw new NegocioException("proposta.item.fora.cotacao", item.produtoId(), cotacao.getCodigo());
+            }
+            if (contagem.merge(item.produtoId(), 1, Integer::sum) > 1) {
+                throw new NegocioException("proposta.item.duplicado", item.produtoId());
+            }
+        }
+        List<CotacaoItem> ordenados = new ArrayList<>();
+        for (CotacaoItem item : cotacao.getItens()) {
+            if (!contagem.containsKey(item.getProduto().getId())) {
+                throw new NegocioException("proposta.itens.incompletos", item.getProduto().getSku());
+            }
+            ordenados.add(item);
+        }
+        return ordenados;
     }
 
     private PropostaAvaliada escolherVencedora(Cotacao cotacao, List<Proposta> propostas, List<PropostaAvaliada> ranking,

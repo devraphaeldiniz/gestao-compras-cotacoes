@@ -19,6 +19,14 @@ services:
       timeout: 3s
       retries: 10
 
+  # Caixa de e-mail falsa: os convites e lembretes aos fornecedores aparecem em http://localhost:8025
+  mailpit:
+    profiles: ["app"]
+    image: axllent/mailpit:v1.27
+    container_name: compras-mailpit
+    ports:
+      - "8025:8025"
+
   # Opcional: sobe a aplicação em container junto com o banco
   #   docker compose --profile app up -d --build
   app:
@@ -28,10 +36,19 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      mailpit:
+        condition: service_started
     environment:
       DB_URL: jdbc:postgresql://postgres:5432/compras_db
       DB_USERNAME: ${DB_USERNAME:-compras}
       DB_PASSWORD: ${DB_PASSWORD:-compras}
+      # Em produção, defina um segredo próprio com 32+ caracteres (ex.: openssl rand -base64 48)
+      APP_JWT_SEGREDO: ${APP_JWT_SEGREDO:-troque-este-segredo-de-demonstracao-com-32-caracteres}
+      EMAIL_HABILITADO: "true"
+      MAIL_HOST: mailpit
+      MAIL_PORT: "1025"
+      # Logs em JSON (ECS), prontos para Loki/Elastic
+      LOGGING_STRUCTURED_FORMAT_CONSOLE: ecs
     ports:
       - "8080:8080"
 

@@ -8,6 +8,24 @@
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
+
+<!-- LOGIN -->
+<section id="tela-login" class="login" hidden>
+  <form id="form-login" class="card login-card">
+    <div class="brand">Compras <span>&amp;</span> Cotações</div>
+    <p class="sub" data-i18n="login.sub"></p>
+    <label><span data-i18n="login.usuario"></span><input name="username" autocomplete="username" required maxlength="60"></label>
+    <label><span data-i18n="login.senha"></span><input name="senha" type="password" autocomplete="current-password" required maxlength="72"></label>
+    <button class="primario" data-i18n="login.entrar"></button>
+    <p class="dica" data-i18n="login.demo"></p>
+    <div class="idioma idioma-login" role="group" aria-label="Idioma / Language">
+      <button type="button" data-lang="pt">PT</button><button type="button" data-lang="en">EN</button>
+    </div>
+  </form>
+</section>
+
+<!-- APLICAÇÃO -->
+<div id="tela-app" hidden>
 <header>
   <div class="bar">
     <div class="brand">Compras <span>&amp;</span> Cotações</div>
@@ -16,12 +34,14 @@
       <button data-aba="fornecedores" data-i18n="aba.fornecedores"></button>
       <button data-aba="cotacoes" data-i18n="aba.cotacoes"></button>
       <button data-aba="pedidos" data-i18n="aba.pedidos"></button>
+      <button data-aba="usuarios" data-i18n="aba.usuarios" data-perfil="ADMIN"></button>
     </nav>
     <a href="/swagger-ui.html" target="_blank" rel="noopener">Swagger ↗</a>
     <div class="idioma" role="group" aria-label="Idioma / Language">
-      <button data-lang="pt">PT</button>
-      <button data-lang="en">EN</button>
+      <button data-lang="pt">PT</button><button data-lang="en">EN</button>
     </div>
+    <div class="usuario"><span id="usuario-nome"></span> <span id="usuario-perfil" class="tag t-off"></span>
+      <button class="link" id="sair" data-i18n="acao.sair"></button></div>
   </div>
 </header>
 
@@ -38,15 +58,13 @@
     <h2 data-i18n="produtos.titulo"></h2>
     <p class="sub" data-i18n="produtos.sub"></p>
     <div class="grade">
-      <div class="card">
+      <div class="card" data-perfil="COMPRADOR">
         <h3 data-i18n="produtos.novo"></h3>
         <form id="form-produto">
           <label><span data-i18n="campo.sku"></span><input name="sku" required maxlength="50" placeholder="CAN-AZ-50"></label>
           <label><span data-i18n="campo.nome"></span><input name="nome" required maxlength="150"></label>
           <div class="linha">
-            <label><span data-i18n="campo.unidade"></span>
-              <select name="unidade"><option>UN</option><option>CX</option><option>KG</option><option>PC</option><option>LT</option><option>MT</option></select>
-            </label>
+            <label><span data-i18n="campo.unidade"></span><select name="unidade"><option>UN</option><option>CX</option><option>KG</option><option>PC</option><option>LT</option><option>MT</option></select></label>
             <label><span data-i18n="campo.saldo"></span><input name="saldoAtual" type="number" step="0.0001" min="0" required></label>
           </div>
           <label><span data-i18n="campo.minimo"></span><input name="estoqueMinimo" type="number" step="0.0001" min="0" required></label>
@@ -56,24 +74,27 @@
         <form id="form-estoque">
           <label><span data-i18n="campo.produto"></span><select name="produtoId" id="sel-produto-estoque" required></select></label>
           <div class="linha">
-            <label><span data-i18n="campo.tipo"></span>
-              <select name="tipo"><option value="SAIDA" data-i18n="mov.SAIDA"></option><option value="ENTRADA" data-i18n="mov.ENTRADA"></option><option value="AJUSTE" data-i18n="mov.AJUSTE"></option></select>
-            </label>
+            <label><span data-i18n="campo.tipo"></span><select name="tipo"><option value="SAIDA" data-i18n="mov.SAIDA"></option><option value="ENTRADA" data-i18n="mov.ENTRADA"></option><option value="AJUSTE" data-i18n="mov.AJUSTE"></option></select></label>
             <label><span data-i18n="campo.quantidade"></span><input name="quantidade" type="number" step="0.0001" min="0" required></label>
           </div>
+          <label><span data-i18n="campo.observacao"></span><input name="observacao" maxlength="500"></label>
           <button class="primario" data-i18n="acao.movimentar"></button>
         </form>
       </div>
       <div class="card">
-        <div class="filtros"><label><input type="checkbox" id="filtro-necessidade"> <span data-i18n="produtos.filtro"></span></label></div>
+        <div class="filtros">
+          <input id="busca-produto" type="search" data-i18n-ph="filtro.buscar">
+          <label><input type="checkbox" id="filtro-necessidade"> <span data-i18n="produtos.filtro"></span></label>
+        </div>
         <table>
           <thead><tr>
             <th data-i18n="campo.sku"></th><th data-i18n="campo.nome"></th><th data-i18n="campo.unidade"></th>
             <th class="num" data-i18n="campo.saldo"></th><th class="num" data-i18n="campo.minimo"></th>
-            <th class="num" data-i18n="campo.ultimoPreco"></th><th class="num" data-i18n="campo.precoMedio"></th><th></th>
+            <th class="num" data-i18n="campo.precoMedio"></th><th></th><th></th>
           </tr></thead>
           <tbody id="tb-produtos"></tbody>
         </table>
+        <div class="paginacao" id="pg-produtos"></div>
       </div>
     </div>
   </section>
@@ -83,22 +104,21 @@
     <h2 data-i18n="fornecedores.titulo"></h2>
     <p class="sub" data-i18n="fornecedores.sub"></p>
     <div class="grade">
-      <div class="card">
+      <div class="card" data-perfil="COMPRADOR">
         <h3 data-i18n="fornecedores.novo"></h3>
         <form id="form-fornecedor">
           <label><span data-i18n="campo.razaoSocial"></span><input name="razaoSocial" required maxlength="180"></label>
           <label><span data-i18n="campo.documento"></span><input name="documento" required placeholder="11.222.333/0001-81"></label>
           <label><span data-i18n="campo.email"></span><input name="email" type="email" required></label>
-          <label><span data-i18n="campo.prazoMedio"></span><input name="prazoMedioDias" type="number" min="0" required></label>
+          <label><span data-i18n="campo.prazoMedio"></span><input name="prazoMedioDias" type="number" min="0" max="3650" required></label>
           <button class="primario" data-i18n="acao.cadastrar"></button>
         </form>
       </div>
       <div class="card">
         <div class="filtros">
+          <input id="busca-fornecedor" type="search" data-i18n-ph="filtro.buscar">
           <select id="filtro-fornecedor">
-            <option value="" data-i18n="filtro.todos"></option>
-            <option value="true" data-i18n="filtro.ativos"></option>
-            <option value="false" data-i18n="filtro.inativos"></option>
+            <option value="" data-i18n="filtro.todos"></option><option value="true" data-i18n="filtro.ativos"></option><option value="false" data-i18n="filtro.inativos"></option>
           </select>
         </div>
         <table>
@@ -108,6 +128,7 @@
           </tr></thead>
           <tbody id="tb-fornecedores"></tbody>
         </table>
+        <div class="paginacao" id="pg-fornecedores"></div>
       </div>
     </div>
   </section>
@@ -120,19 +141,19 @@
       <div class="filtros">
         <select id="filtro-cotacao">
           <option value="" data-i18n="filtro.todas"></option>
-          <option value="RASCUNHO" data-i18n="status.RASCUNHO"></option>
-          <option value="ABERTA" data-i18n="status.ABERTA"></option>
-          <option value="FECHADA" data-i18n="status.FECHADA"></option>
-          <option value="CANCELADA" data-i18n="status.CANCELADA"></option>
+          <option value="RASCUNHO" data-i18n="status.RASCUNHO"></option><option value="ABERTA" data-i18n="status.ABERTA"></option>
+          <option value="FECHADA" data-i18n="status.FECHADA"></option><option value="CANCELADA" data-i18n="status.CANCELADA"></option>
         </select>
+        <button class="secundario empurra" id="nova-cotacao" data-perfil="COMPRADOR" data-i18n="cotacoes.nova"></button>
       </div>
       <table>
         <thead><tr>
-          <th data-i18n="campo.codigo"></th><th data-i18n="campo.produto"></th><th class="num" data-i18n="campo.quantidade"></th>
+          <th data-i18n="campo.codigo"></th><th data-i18n="campo.itens"></th><th data-i18n="campo.origem"></th>
           <th data-i18n="campo.status"></th><th class="num" data-i18n="campo.propostas"></th><th data-i18n="campo.dataLimite"></th>
         </tr></thead>
         <tbody id="tb-cotacoes"></tbody>
       </table>
+      <div class="paginacao" id="pg-cotacoes"></div>
     </div>
     <div class="card detalhe" id="detalhe" hidden></div>
   </section>
@@ -142,20 +163,53 @@
     <h2 data-i18n="pedidos.titulo"></h2>
     <p class="sub" data-i18n="pedidos.sub"></p>
     <div class="card">
+      <div class="filtros">
+        <select id="filtro-pedido">
+          <option value="" data-i18n="filtro.todos"></option>
+          <option value="EMITIDO" data-i18n="status.EMITIDO"></option><option value="PARCIALMENTE_RECEBIDO" data-i18n="status.PARCIALMENTE_RECEBIDO"></option>
+          <option value="RECEBIDO" data-i18n="status.RECEBIDO"></option><option value="CANCELADO" data-i18n="status.CANCELADO"></option>
+        </select>
+      </div>
       <table>
         <thead><tr>
           <th data-i18n="campo.numero"></th><th data-i18n="campo.cotacao"></th><th data-i18n="campo.fornecedor"></th>
-          <th data-i18n="campo.produto"></th><th class="num" data-i18n="campo.quantidade"></th><th class="num" data-i18n="campo.total"></th>
-          <th class="num" data-i18n="campo.prazo"></th><th data-i18n="campo.status"></th><th></th>
+          <th data-i18n="campo.itens"></th><th class="num" data-i18n="campo.total"></th><th data-i18n="campo.status"></th><th></th>
         </tr></thead>
         <tbody id="tb-pedidos"></tbody>
       </table>
+      <div class="paginacao" id="pg-pedidos"></div>
+    </div>
+  </section>
+
+  <!-- USUÁRIOS (ADMIN) -->
+  <section data-view="usuarios" hidden>
+    <h2 data-i18n="usuarios.titulo"></h2>
+    <p class="sub" data-i18n="usuarios.sub"></p>
+    <div class="grade">
+      <div class="card">
+        <h3 data-i18n="usuarios.novo"></h3>
+        <form id="form-usuario">
+          <label><span data-i18n="login.usuario"></span><input name="username" required pattern="[a-z0-9._\-]{3,60}" maxlength="60"></label>
+          <label><span data-i18n="campo.nome"></span><input name="nome" required maxlength="120"></label>
+          <label><span data-i18n="campo.email"></span><input name="email" type="email" maxlength="150"></label>
+          <label><span data-i18n="login.senha"></span><input name="senha" type="password" required minlength="10" maxlength="72" autocomplete="new-password"></label>
+          <label><span data-i18n="campo.perfil"></span><select name="perfil"><option>COMPRADOR</option><option>APROVADOR</option><option>ADMIN</option></select></label>
+          <button class="primario" data-i18n="acao.cadastrar"></button>
+        </form>
+      </div>
+      <div class="card">
+        <table>
+          <thead><tr><th data-i18n="login.usuario"></th><th data-i18n="campo.nome"></th><th data-i18n="campo.perfil"></th><th data-i18n="campo.status"></th><th></th></tr></thead>
+          <tbody id="tb-usuarios"></tbody>
+        </table>
+      </div>
     </div>
   </section>
 </main>
+</div>
 
+<dialog id="modal"><div id="modal-conteudo"></div></dialog>
 <div id="toast" aria-live="polite"></div>
-
 <script src="app.js"></script>
 </body>
 </html>

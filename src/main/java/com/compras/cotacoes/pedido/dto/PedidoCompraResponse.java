@@ -3,6 +3,7 @@ package com.compras.cotacoes.pedido.dto;
 import com.compras.cotacoes.pedido.StatusPedidoCompra;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 public record PedidoCompraResponse(
         Long id,
@@ -12,16 +13,17 @@ public record PedidoCompraResponse(
         Long propostaId,
         Long fornecedorId,
         String fornecedorRazaoSocial,
-        Long produtoId,
-        String produtoSku,
-        String produtoNome,
-        BigDecimal quantidade,
-        BigDecimal valorUnitario,
+        List<PedidoItemResponse> itens,
+        BigDecimal valorMercadoria,
         BigDecimal valorFrete,
         BigDecimal valorImposto,
         BigDecimal valorTotal,
         Integer prazoEntregaDias,
         StatusPedidoCompra status,
         LocalDateTime dataRecebimento,
+        String emitidoPor,
+        String motivoCancelamento,
+        String canceladoPor,
+        LocalDateTime canceladoEm,
         LocalDateTime criadoEm) {
 }

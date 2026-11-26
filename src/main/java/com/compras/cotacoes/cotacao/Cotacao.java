@@ -2,7 +2,9 @@ package com.compras.cotacoes.cotacao;
 
 import com.compras.cotacoes.fornecedor.Fornecedor;
 import com.compras.cotacoes.produto.Produto;
+import com.compras.cotacoes.proposta.CriterioDecisao;
 import com.compras.cotacoes.shared.persistencia.EntidadeAuditavel;
+import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -14,12 +16,17 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.JoinTable;
 import jakarta.persistence.ManyToMany;
-import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -39,16 +46,17 @@ public class Cotacao extends EntidadeAuditavel {
     @Column(nullable = false, unique = true, length = 40)
     private String codigo;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "produto_id", nullable = false)
-    private Produto produto;
-
-    @Column(nullable = false, precision = 19, scale = 4)
-    private BigDecimal quantidade;
-
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private StatusCotacao status;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private OrigemCotacao origem = OrigemCotacao.MANUAL;
+
+    @OneToMany(mappedBy = "cotacao", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("id")
+    private List<CotacaoItem> itens = new ArrayList<>();
 
     @Column(name = "data_limite")
     private LocalDate dataLimite;
@@ -65,9 +73,49 @@ public class Cotacao extends EntidadeAuditavel {
             inverseJoinColumns = @JoinColumn(name = "fornecedor_id"))
     private Set<Fornecedor> fornecedoresConvidados = new LinkedHashSet<>();
 
+    // ---- auditoria do ciclo de vida
+    @Column(name = "criado_por", nullable = false, length = 60, updatable = false)
+    private String criadoPor;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "criterio_decisao", length = 30)
+    private CriterioDecisao criterioDecisao;
+
+    @Column(name = "decidido_por", length = 60)
+    private String decididoPor;
+
+    @Column(name = "decidido_em")
+    private LocalDateTime decididoEm;
+
+    @Column(name = "prazo_encerrado_em")
+    private LocalDateTime prazoEncerradoEm;
+
+    @Column(name = "motivo_cancelamento", length = 500)
+    private String motivoCancelamento;
+
+    @Column(name = "cancelado_por", length = 60)
+    private String canceladoPor;
+
+    @Column(name = "cancelado_em")
+    private LocalDateTime canceladoEm;
+
     /** Ex.: COT-2026-00001. O sequencial vem da sequence {@code seq_codigo_cotacao}. */
     public static String gerarCodigo(int ano, long sequencial) {
         return "COT-%d-%05d".formatted(ano, sequencial);
+    }
+
+    public CotacaoItem adicionarItem(Produto produto, BigDecimal quantidade) {
+        CotacaoItem item = new CotacaoItem(this, produto, quantidade);
+        itens.add(item);
+        return item;
+    }
+
+    public Optional<CotacaoItem> itemDoProduto(Long produtoId) {
+        return itens.stream().filter(i -> Objects.equals(i.getProduto().getId(), produtoId)).findFirst();
+    }
+
+    public boolean emAndamento() {
+        return status == StatusCotacao.RASCUNHO || status == StatusCotacao.ABERTA;
     }
 
     /** Sem convidados, qualquer fornecedor ativo pode enviar proposta. */

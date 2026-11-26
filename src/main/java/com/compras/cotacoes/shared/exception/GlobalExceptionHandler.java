@@ -106,6 +106,19 @@ public class GlobalExceptionHandler {
         return responder(HttpStatus.NOT_ACCEPTABLE, mensagens.obter("erro.midia.nao.aceitavel"), request, List.of());
     }
 
+    @ExceptionHandler(NaoAutenticadoException.class)
+    public ResponseEntity<ErroRespostaDTO> naoAutenticado(NaoAutenticadoException ex, HttpServletRequest request) {
+        return responder(HttpStatus.UNAUTHORIZED, traduzir(ex), request, List.of());
+    }
+
+    @ExceptionHandler(MuitasTentativasException.class)
+    public ResponseEntity<ErroRespostaDTO> muitasTentativas(MuitasTentativasException ex, HttpServletRequest request) {
+        ResponseEntity<ErroRespostaDTO> resposta = responder(HttpStatus.TOO_MANY_REQUESTS, traduzir(ex), request, List.of());
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header("Retry-After", String.valueOf(Math.max(1, ex.getAguardar().toSeconds())))
+                .body(resposta.getBody());
+    }
+
     @ExceptionHandler(RecursoNaoEncontradoException.class)
     public ResponseEntity<ErroRespostaDTO> naoEncontrado(RecursoNaoEncontradoException ex,
                                                          HttpServletRequest request) {
@@ -114,7 +127,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(NegocioException.class)
     public ResponseEntity<ErroRespostaDTO> negocio(NegocioException ex, HttpServletRequest request) {
-        return responder(HttpStatus.UNPROCESSABLE_ENTITY, traduzir(ex), request, List.of());
+        return responder(HttpStatus.UNPROCESSABLE_CONTENT, traduzir(ex), request, List.of());
     }
 
     @ExceptionHandler(ConflitoException.class)

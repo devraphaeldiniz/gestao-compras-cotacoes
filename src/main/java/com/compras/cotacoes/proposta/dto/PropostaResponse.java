@@ -4,6 +4,7 @@ import com.compras.cotacoes.proposta.StatusProposta;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 
 public record PropostaResponse(
         Long id,
@@ -11,7 +12,7 @@ public record PropostaResponse(
         Long fornecedorId,
         String fornecedorRazaoSocial,
         boolean fornecedorAtivo,
-        BigDecimal precoUnitario,
+        List<PropostaItemResponse> itens,
         BigDecimal valorMercadoria,
         BigDecimal valorFrete,
         BigDecimal impostoPercentual,

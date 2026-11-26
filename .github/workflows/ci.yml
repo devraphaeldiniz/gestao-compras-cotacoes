@@ -38,6 +38,27 @@ jobs:
           path: target/surefire-reports/
           retention-days: 7
 
+  e2e:
+    name: E2E da interface (Playwright)
+    runs-on: ubuntu-latest
+    needs: testes
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Java 21 (Temurin)
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - name: Chromium e dependências do sistema
+        run: |
+          chmod +x mvnw
+          ./mvnw -B -q test-compile -Pe2e
+          ./mvnw -B -q exec:java -Dexec.classpathScope=test -Dexec.mainClass=com.microsoft.playwright.CLI             -Dexec.args="install --with-deps chromium"
+      - name: Testes E2E
+        run: ./mvnw -B test -Pe2e
+
   seguranca:
     name: Varredura de dependências (Trivy)
     runs-on: ubuntu-latest

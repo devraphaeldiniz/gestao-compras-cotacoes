@@ -1,7 +1,7 @@
 package com.compras.cotacoes.pedido;
 
 import com.compras.cotacoes.pedido.dto.PedidoCompraResponse;
-import java.util.List;
+import com.compras.cotacoes.pedido.dto.PedidoItemResponse;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 
@@ -13,10 +13,12 @@ public interface PedidoCompraMapper {
     @Mapping(target = "propostaId", source = "proposta.id")
     @Mapping(target = "fornecedorId", source = "fornecedor.id")
     @Mapping(target = "fornecedorRazaoSocial", source = "fornecedor.razaoSocial")
+    PedidoCompraResponse paraResposta(PedidoCompra pedido);
+
     @Mapping(target = "produtoId", source = "produto.id")
     @Mapping(target = "produtoSku", source = "produto.sku")
     @Mapping(target = "produtoNome", source = "produto.nome")
-    PedidoCompraResponse paraResposta(PedidoCompra pedido);
-
-    List<PedidoCompraResponse> paraRespostas(List<PedidoCompra> pedidos);
+    @Mapping(target = "unidade", source = "produto.unidade")
+    @Mapping(target = "quantidadePendente", expression = "java(item.quantidadePendente())")
+    PedidoItemResponse paraItem(PedidoItem item);
 }

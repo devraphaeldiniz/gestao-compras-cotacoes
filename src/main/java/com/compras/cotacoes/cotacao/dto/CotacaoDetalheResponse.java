@@ -1,11 +1,11 @@
 package com.compras.cotacoes.cotacao.dto;
 
+import com.compras.cotacoes.cotacao.OrigemCotacao;
 import com.compras.cotacoes.cotacao.StatusCotacao;
 import com.compras.cotacoes.fornecedor.dto.FornecedorResponse;
-import com.compras.cotacoes.produto.UnidadeMedida;
+import com.compras.cotacoes.proposta.CriterioDecisao;
 import com.compras.cotacoes.proposta.dto.PropostaResponse;
 import com.compras.cotacoes.proposta.dto.RecomendacaoResponse;
-import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -13,14 +13,9 @@ import java.util.List;
 public record CotacaoDetalheResponse(
         Long id,
         String codigo,
-        Long produtoId,
-        String produtoSku,
-        String produtoNome,
-        UnidadeMedida unidade,
-        BigDecimal saldoAtualProduto,
-        BigDecimal estoqueMinimoProduto,
-        BigDecimal quantidade,
+        OrigemCotacao origem,
         StatusCotacao status,
+        List<CotacaoItemResponse> itens,
         LocalDate dataLimite,
         String observacao,
         Long propostaVencedoraId,
@@ -32,6 +27,14 @@ public record CotacaoDetalheResponse(
         boolean podeDecidir,
         RecomendacaoResponse recomendacaoMenorPreco,
         RecomendacaoResponse recomendacaoPontuacaoPonderada,
+        String criadoPor,
+        CriterioDecisao criterioDecisao,
+        String decididoPor,
+        LocalDateTime decididoEm,
+        LocalDateTime prazoEncerradoEm,
+        String motivoCancelamento,
+        String canceladoPor,
+        LocalDateTime canceladoEm,
         LocalDateTime criadoEm,
         LocalDateTime atualizadoEm) {
 }

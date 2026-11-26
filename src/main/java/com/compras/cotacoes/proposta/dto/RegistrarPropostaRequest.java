@@ -1,25 +1,27 @@
 package com.compras.cotacoes.proposta.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMax;
-import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Positive;
-import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.PositiveOrZero;
+import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 
 public record RegistrarPropostaRequest(
         @Schema(example = "1")
         @NotNull(message = "{validacao.obrigatorio}")
         Long fornecedorId,
 
-        @Schema(example = "24.90")
-        @NotNull(message = "{validacao.obrigatorio}")
-        @Positive(message = "{validacao.positivo}")
-        @Digits(integer = 15, fraction = 4, message = "{validacao.digitos}")
-        BigDecimal precoUnitario,
+        @Schema(description = "Preço unitário de cada item da cotação (todos os itens são obrigatórios)")
+        @NotEmpty(message = "{validacao.obrigatorio}")
+        @Size(max = 50, message = "{validacao.itens.maximo}")
+        List<@Valid ItemPropostaRequest> itens,
 
         @Schema(example = "35.00")
         @PositiveOrZero(message = "{validacao.nao.negativo}")

@@ -6,18 +6,18 @@
 | **Versão avaliada** | commit `d6b8a7a` (Spring Boot 3.4.5), rodando em Docker local |
 | **Data** | 26/11/2026 |
 | **Tipo** | Caixa-branca: código-fonte, dependências, imagem Docker e aplicação em execução |
-| **Resultado** | 11 achados; 10 corrigidos e cobertos por teste de regressão, 1 em aberto por decisão de produto (autenticação) |
+| **Resultado** | 11 achados, todos corrigidos e cobertos por teste de regressão (SEC-00, autenticação, resolvido na versão Spring Boot 4) |
 
 ## Resumo
 
 | Severidade | Encontrados | Corrigidos | Em aberto |
 |---|---|---|---|
 | Crítica | 1 (dependências) | 1 | 0 |
-| Alta | 3 | 2 | 1 (SEC-00, autenticação) |
+| Alta | 3 | 3 | 0 |
 | Média | 3 | 3 | 0 |
 | Baixa | 4 | 4 | 0 |
 
-Vulnerabilidades conhecidas (CVE) na imagem, pelo Trivy: **89 antes → 2 depois**. As 2 restantes não se aplicam ao código desta aplicação e estão justificadas em [Riscos aceitos](#riscos-aceitos).
+Vulnerabilidades conhecidas (CVE) na imagem, pelo Trivy: **89 antes → 2 depois → 0 após a migração para o Spring Boot 4** (as 2 que restavam estão em [Riscos aceitos](#riscos-aceitos), hoje encerrados).
 
 ## Metodologia e ferramentas
 
@@ -30,11 +30,25 @@ Vulnerabilidades conhecidas (CVE) na imagem, pelo Trivy: **89 antes → 2 depois
 
 ## Achados
 
-### SEC-00 · Alta · Ausência de autenticação e autorização · **Em aberto**
+### SEC-00 · Alta · Ausência de autenticação e autorização · Corrigido
 
 Qualquer cliente com acesso à rede pode cadastrar fornecedores, decidir cotações e receber pedidos; não há identidade do comprador nem trilha de quem decidiu. É o maior risco para uso real e é uma decisão de produto (perfis, provedor de identidade), por isso não foi implementado neste ciclo.
 
-**Recomendação:** Spring Security com OAuth2/JWT (ou sessão) e ao menos dois perfis: `COMPRADOR` (propostas, abertura) e `APROVADOR` (decisão com justificativa, recebimento); registrar o usuário na decisão e no recebimento. Até lá, publicar a aplicação apenas em rede interna ou atrás de um gateway autenticado.
+**Correção:** Spring Security com login próprio emitindo JWT HS256 (`POST /api/auth/login`, validado pelo OAuth2 Resource Server) e três perfis:
+
+- `COMPRADOR`: cadastros, estoque, cotações e propostas;
+- `APROVADOR`: decisão, recebimento e cancelamento de pedido;
+- `ADMIN`: tudo, além de usuários e métricas.
+
+Comprador não decide (segregação de funções). A decisão, o recebimento, os cancelamentos e cada movimentação de estoque gravam o usuário: colunas `decidido_por`/`emitido_por`/`cancelado_por`, histórico de eventos e extrato.
+
+- **Senhas:** BCrypt.
+- **Força bruta:** 5 falhas bloqueiam o usuário por 15 minutos (`429` com `Retry-After`). Usuário inexistente gasta o mesmo tempo de BCrypt, então não dá para enumerar logins.
+- **Respostas 401/403:** saem em JSON, no idioma da requisição.
+- **Segredo do JWT:** obrigatório com 32 ou mais caracteres. Sem ele, a chave é aleatória a cada subida (só para desenvolvimento).
+- **Actuator:** `/actuator/prometheus` exige ADMIN na porta pública.
+
+**Regressão:** `AutenticacaoIntegracaoTest` (401 sem token, permissões por perfil, login real, bloqueio, usuário inativo) e `ProtecaoForcaBrutaTest`.
 
 ### SEC-01 · Alta · Perda de atualização de estoque sob concorrência · Corrigido
 
@@ -108,13 +122,13 @@ Qualquer cliente com acesso à rede pode cadastrar fornecedores, decidir cotaç�
 | CVE-2026-47884 (Crítica) | spring-webmvc 6.2.19 | Exige `XsltView` com mapeamento `/**` renderizando views. A aplicação só tem `@RestController` com JSON; não há `XsltView`, `ModelAndView` nem templates no código. |
 | CVE-2026-47890 (Crítica) | spring-webmvc 6.2.19 | Exige Server-Sent Events com view fragments. A aplicação não usa SSE. |
 
-As duas só têm correção na linha Spring Framework 7.x (Spring Boot 4), que é uma migração de major. Estão em `.trivyignore` com data de revisão; a migração para o Boot 4 remove a exceção.
+As duas só tinham correção na linha Spring Framework 7.x. **Encerrado:** a aplicação migrou para o Spring Boot 4.2 (Spring Framework 7.1). O Trivy na imagem nova não encontra nenhuma vulnerabilidade, de nenhuma severidade, e o `.trivyignore` ficou vazio.
 
 ## Pendências recomendadas
 
-1. **Autenticação e autorização** (SEC-00).
-2. **Migração para Spring Boot 4** (Spring Framework 7), para eliminar os riscos aceitos.
-3. Em produção: credenciais do banco via secret (não os padrões do `docker-compose.yml`), TLS no proxy, `SWAGGER_ENABLED=false` e limite de corpo e de taxa no gateway.
+1. ~~Autenticação e autorização (SEC-00)~~: feito (JWT + perfis).
+2. ~~Migração para Spring Boot 4~~: feita; riscos aceitos encerrados.
+3. Em produção: `APP_JWT_SEGREDO` forte vindo de um cofre de segredos, sem carregar `db/seed` (usuários de demonstração), credenciais do banco via secret (não os padrões do `docker-compose.yml`), TLS no proxy, `SWAGGER_ENABLED=false` e limite de corpo e de taxa no gateway.
 
 ## Como reproduzir
 
@@ -125,7 +139,7 @@ As duas só têm correção na linha Spring Framework 7.x (Spring Boot 4), que �
 # Dependências e imagem (igual ao CI)
 docker compose --profile app up -d --build
 docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD/.trivyignore:/.trivyignore:ro" \
-  aquasec/trivy:0.58.1 image --severity CRITICAL --ignore-unfixed --ignorefile /.trivyignore compras-cotacoes-app
+  aquasec/trivy:latest image --severity CRITICAL --ignore-unfixed --ignorefile /.trivyignore compras-cotacoes-app
 
 # Código
 docker run --rm -v "$PWD:/src" semgrep/semgrep semgrep scan --config p/java --config p/owasp-top-ten --config p/secrets /src
