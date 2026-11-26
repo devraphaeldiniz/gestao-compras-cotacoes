@@ -102,7 +102,15 @@ class SegurancaIntegracaoTest extends IntegracaoBase {
                 .andExpect(header().string("Cross-Origin-Resource-Policy", "same-origin"))
                 .andExpect(header().string("Cache-Control", "no-store"))
                 .andExpect(header().exists("X-Request-Id"))
-                .andExpect(header().string("Content-Security-Policy", containsString("script-src 'self'")));
+                .andExpect(header().string("Content-Security-Policy", containsString("script-src 'self'")))
+                .andExpect(header().doesNotExist("Strict-Transport-Security"));
+    }
+
+    @Test
+    @DisplayName("SEC-05: atrás de proxy HTTPS (X-Forwarded-Proto) a resposta traz HSTS")
+    void hstsAtrasDeProxyHttps() throws Exception {
+        mockMvc.perform(get("/api/produtos").with(comprador()).header("X-Forwarded-Proto", "https"))
+                .andExpect(header().string("Strict-Transport-Security", "max-age=31536000; includeSubDomains"));
     }
 
     @Test

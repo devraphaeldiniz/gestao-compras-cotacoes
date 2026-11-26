@@ -240,7 +240,7 @@ No plano gratuito, o serviço dorme depois de 15 minutos sem acesso, e o primeir
 ./mvnw test -Pe2e          # E2E da interface num Chromium headless (Playwright)
 ```
 
-O primeiro comando roda **87 testes**, unitários e de integração. Os de integração usam `@SpringBootTest`, MockMvc e PostgreSQL 16 via Testcontainers, então o Docker precisa estar ligado. O build falha se a cobertura cair abaixo de 80% de linhas ou 65% de branches; hoje está em **90% de linhas e 72% de branches**. O relatório sai em `target/site/jacoco/index.html`.
+O primeiro comando roda **88 testes**, unitários e de integração. Os de integração usam `@SpringBootTest`, MockMvc e PostgreSQL 16 via Testcontainers, então o Docker precisa estar ligado. O build falha se a cobertura cair abaixo de 80% de linhas ou 65% de branches; hoje está em **90% de linhas e 72% de branches**. O relatório sai em `target/site/jacoco/index.html`.
 
 | Classe | Cobre |
 |---|---|

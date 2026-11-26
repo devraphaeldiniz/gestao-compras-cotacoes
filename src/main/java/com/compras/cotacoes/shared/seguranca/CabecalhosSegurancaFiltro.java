@@ -66,6 +66,10 @@ public class CabecalhosSegurancaFiltro extends OncePerRequestFilter {
         response.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
         response.setHeader("Cross-Origin-Opener-Policy", "same-origin");
         response.setHeader("Cross-Origin-Resource-Policy", "same-origin");
+        // HSTS só em HTTPS: direto (isSecure) ou terminado no proxy (Render, nginx) que informa X-Forwarded-Proto
+        if (request.isSecure() || "https".equalsIgnoreCase(request.getHeader("X-Forwarded-Proto"))) {
+            response.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+        }
         boolean swagger = caminho.startsWith("/swagger-ui") || caminho.startsWith("/v3/api-docs");
         response.setHeader("Content-Security-Policy", swagger ? CSP_SWAGGER : CSP_PADRAO);
 
