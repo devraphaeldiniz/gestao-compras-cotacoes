@@ -31,13 +31,23 @@ spring:
 
 server:
   port: ${PORT:8080}
+  # Erros da API passam pelo GlobalExceptionHandler; o /error padrão não expõe detalhes internos
   error:
-    include-message: always
+    include-message: never
+    include-stacktrace: never
+    include-exception: false
+    whitelabel:
+      enabled: false
+  tomcat:
+    max-swallow-size: 1MB
 
 springdoc:
+  # Em produção, desligue com SWAGGER_ENABLED=false
   api-docs:
+    enabled: ${SWAGGER_ENABLED:true}
     path: /v3/api-docs
   swagger-ui:
+    enabled: ${SWAGGER_ENABLED:true}
     path: /swagger-ui.html
     operations-sorter: method
     tags-sorter: alpha
@@ -45,5 +55,10 @@ springdoc:
 management:
   endpoints:
     web:
+      discovery:
+        enabled: false
       exposure:
-        include: health,info
+        include: health
+  endpoint:
+    health:
+      show-details: never

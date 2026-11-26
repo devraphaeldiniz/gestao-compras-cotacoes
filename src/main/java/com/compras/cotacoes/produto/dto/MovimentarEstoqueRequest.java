@@ -4,6 +4,7 @@ import com.compras.cotacoes.produto.TipoMovimentacaoEstoque;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PositiveOrZero;
+import jakarta.validation.constraints.Digits;
 import java.math.BigDecimal;
 
 public record MovimentarEstoqueRequest(
@@ -14,5 +15,6 @@ public record MovimentarEstoqueRequest(
         @Schema(description = "Quantidade movimentada; no AJUSTE é o novo saldo absoluto", example = "5")
         @NotNull(message = "{validacao.obrigatorio}")
         @PositiveOrZero(message = "{validacao.nao.negativo}")
+        @Digits(integer = 15, fraction = 4, message = "{validacao.digitos}")
         BigDecimal quantidade) {
 }

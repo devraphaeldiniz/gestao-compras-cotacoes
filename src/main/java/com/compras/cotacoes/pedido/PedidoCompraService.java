@@ -3,6 +3,7 @@ package com.compras.cotacoes.pedido;
 import com.compras.cotacoes.cotacao.Cotacao;
 import com.compras.cotacoes.pedido.dto.PedidoCompraResponse;
 import com.compras.cotacoes.produto.Produto;
+import com.compras.cotacoes.produto.ProdutoRepository;
 import com.compras.cotacoes.proposta.Proposta;
 import com.compras.cotacoes.shared.exception.NegocioException;
 import com.compras.cotacoes.shared.exception.RecursoNaoEncontradoException;
@@ -25,6 +26,7 @@ public class PedidoCompraService {
     private static final int ESCALA_CUSTO = 4;
 
     private final PedidoCompraRepository pedidoCompraRepository;
+    private final ProdutoRepository produtoRepository;
     private final PedidoCompraMapper pedidoCompraMapper;
     private final Clock clock;
 
@@ -62,15 +64,18 @@ public class PedidoCompraService {
      */
     @Transactional
     public PedidoCompraResponse receber(Long pedidoId) {
-        PedidoCompra pedido = pedidoCompraRepository.findComDetalhesById(pedidoId)
+        // Ordem dos bloqueios: pedido, depois produto (a mesma de qualquer outro fluxo que toque o produto)
+        PedidoCompra pedido = pedidoCompraRepository.buscarComBloqueio(pedidoId)
                 .orElseThrow(() -> new RecursoNaoEncontradoException("pedido.nao.encontrado", pedidoId));
         if (pedido.getStatus() != StatusPedidoCompra.EMITIDO) {
             throw new NegocioException("pedido.status.invalido.receber", pedido.getNumeroPedido(), pedido.getStatus());
         }
+        Produto produto = produtoRepository.buscarComBloqueio(pedido.getProduto().getId())
+                .orElseThrow(() -> new RecursoNaoEncontradoException("produto.nao.encontrado", pedido.getProduto().getId()));
 
         pedido.setStatus(StatusPedidoCompra.RECEBIDO);
         pedido.setDataRecebimento(LocalDateTime.now(clock));
-        atualizarEstoqueECusto(pedido.getProduto(), pedido.getQuantidade(), pedido.getValorTotal());
+        atualizarEstoqueECusto(produto, pedido.getQuantidade(), pedido.getValorTotal());
 
         PedidoCompra salvo = pedidoCompraRepository.save(pedido);
         log.info("Pedido {} recebido; saldo do produto {} agora é {}",

@@ -7,6 +7,7 @@ on:
 permissions:
   contents: read
 
+# Actions fixadas por SHA de commit (tags podem ser reapontadas); o Dependabot mantém atualizado
 jobs:
   testes:
     name: Build e testes (unitários + Testcontainers)
@@ -14,10 +15,10 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Java 21 (Temurin)
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
         with:
           distribution: temurin
           java-version: "21"
@@ -31,17 +32,24 @@ jobs:
 
       - name: Relatórios de teste
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: relatorios-surefire
           path: target/surefire-reports/
           retention-days: 7
 
-  imagem:
-    name: Build da imagem Docker
+  seguranca:
+    name: Varredura de dependências (Trivy)
     runs-on: ubuntu-latest
     needs: testes
     steps:
-      - uses: actions/checkout@v4
-      - name: docker build
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Build da imagem
         run: docker build -t compras-cotacoes:ci .
+      # Falha o build em vulnerabilidade CRITICAL com correção disponível; .trivyignore lista as aceitas
+      - name: Trivy na imagem
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD/.trivyignore:/.trivyignore:ro" \
+            aquasec/trivy@sha256:ab70a02200597efa04748f210f793936eb647cbcdb0ea69cc30b226d6f5a22c7 \
+            image --scanners vuln --severity CRITICAL --ignore-unfixed --ignorefile /.trivyignore \
+            --exit-code 1 compras-cotacoes:ci

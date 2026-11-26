@@ -1,12 +1,35 @@
 # Sistema de Gestão de Compras e Cotações
 
-API REST em **Java 21 + Spring Boot 3.4** que automatiza o ciclo de compras de reposição: o estoque atinge o mínimo, o sistema abre uma cotação, os fornecedores enviam propostas, o comprador decide com apoio de dois critérios objetivos, o pedido de compra é emitido e o recebimento atualiza o estoque e o custo médio.
+[![CI](https://github.com/devraphaeldiniz/gestao-compras-cotacoes/actions/workflows/ci.yml/badge.svg)](https://github.com/devraphaeldiniz/gestao-compras-cotacoes/actions/workflows/ci.yml)
+
+API REST em **Java 21 + Spring Boot 3.5** que automatiza o ciclo de compras de reposição: o estoque atinge o mínimo, o sistema abre uma cotação, os fornecedores enviam propostas, o comprador decide com apoio de dois critérios objetivos, o pedido de compra é emitido e o recebimento atualiza o estoque e o custo médio.
 
 Inclui uma interface web leve em **PT/EN** (HTML + CSS + JavaScript puro) que consome a API real, documentação Swagger, migrações Flyway, testes unitários e de integração com **PostgreSQL real via Testcontainers**, Docker e CI no GitHub Actions.
 
 > **English summary:** Purchasing & Quotation Management API. Minimum stock triggers a draft quotation, suppliers submit proposals, the system ranks them by *lowest price* or a *70/30 price/lead-time weighted score*, requires at least 3 valid proposals and a justification for manual overrides, issues the purchase order and, on receipt, updates stock and weighted average cost. All business messages are localized (send `Accept-Language: en` or `?lang=en`).
 
 ---
+
+## Telas
+
+**Detalhe da cotação:** propostas com o cálculo de mercadoria, frete e imposto, e o ranking pelos dois critérios. Aqui eles discordam: o menor preço escolhe a Papelaria Central, a pontuação ponderada escolhe a Distribuidora Norte, que entrega em 2 dias.
+
+![Detalhe da cotação com o ranking pelos dois critérios](docs/prints/02-cotacao-detalhe.png)
+
+**Produtos e estoque:** cadastro, movimentação e o alerta de compra quando o saldo chega ao mínimo.
+
+![Produtos e estoque](docs/prints/01-produtos.png)
+
+<table>
+  <tr>
+    <td width="50%"><b>Decisão (interface em inglês):</b> a vencedora pela pontuação ponderada e as demais rejeitadas<br><img src="docs/prints/03-decisao-en.png" alt="Cotação decidida, interface em inglês"></td>
+    <td width="50%"><b>Pedidos de compra:</b> emitidos na decisão; o recebimento atualiza estoque e custo médio<br><img src="docs/prints/04-pedidos-en.png" alt="Pedidos de compra"></td>
+  </tr>
+</table>
+
+**Swagger:** todos os endpoints documentados em `/swagger-ui.html`.
+
+![Swagger UI](docs/prints/05-swagger.png)
 
 ## Por que este projeto
 
@@ -53,27 +76,32 @@ Em empresas pequenas e médias, compra de reposição costuma viver em planilha 
 - **Critérios de decisão isolados em `AvaliadorPropostasService`:** a regra de ranking é pura (sem repositório), testada à parte e reaproveitada na prévia do detalhe da cotação e na decisão.
 - **`Clock` injetado:** validade e prazo usam `LocalDate.now(clock)`, o que torna os testes unitários determinísticos.
 - **Erros padronizados e localizados:** exceções carregam a chave da mensagem; o `GlobalExceptionHandler` traduz no idioma da requisição (`Accept-Language` ou `?lang=`) e devolve `400`, `404`, `409` ou `422` com o mesmo formato de corpo.
-- **Testcontainers:** o teste de integração roda contra PostgreSQL 16 de verdade, com as migrações reais. Nada de H2 com dialeto diferente do de produção.
+- **Concorrência tratada no banco:** movimentação de estoque, recebimento e decisão usam bloqueio pessimista (`SELECT ... FOR UPDATE`), e um índice único parcial impede duas cotações em andamento para o mesmo produto. Os testes disparam requisições em paralelo, em threads reais, para provar isso.
+- **Testcontainers:** os testes de integração rodam contra PostgreSQL 16 de verdade, com as migrações reais. Nada de H2 com dialeto diferente do de produção.
 
 ## Stack
 
-Java 21 · Spring Boot 3.4 (Web, Data JPA, Validation, Actuator) · PostgreSQL 16 · Flyway · MapStruct 1.6 · Lombok · springdoc-openapi · JUnit 5 · Mockito · AssertJ · Testcontainers · Docker · GitHub Actions
+Java 21 · Spring Boot 3.5 (Web, Data JPA, Validation, Actuator) · PostgreSQL 16 · Flyway · MapStruct 1.6 · Lombok · springdoc-openapi · JUnit 5 · Mockito · AssertJ · Testcontainers · Docker · GitHub Actions
 
 ## Estrutura
 
 ```
 src/main/java/com/compras/cotacoes
-├── shared        config (OpenAPI, i18n, Clock), exceções + handler global, MensagemService, entidade auditável
+├── shared        config (OpenAPI, i18n, Clock), exceções + handler global, MensagemService,
+│                 entidade auditável e filtro de cabeçalhos de segurança
 ├── produto       cadastro, movimentação de estoque e Regra A
 ├── fornecedor    cadastro e ativação/inativação
 ├── cotacao       criação, abertura, listagem e detalhe com prévia de recomendação (Regra B)
 ├── proposta      cálculo (Regra C), avaliação e decisão (Regra D)
 └── pedido        emissão e recebimento do pedido de compra (Regra E)
 src/main/resources
-├── db/migration  V1: estrutura
+├── db/migration  V1: estrutura · V3: uma cotação em andamento por produto
 ├── db/seed       V2: dados de demonstração
 ├── messages*.properties   textos em PT (padrão) e EN
-└── static/index.html      interface web PT/EN
+└── static/                interface web PT/EN (index.html, app.js, app.css)
+docs/
+├── prints/                capturas de tela usadas neste README
+└── relatorio-seguranca.md teste de vulnerabilidade completo
 ```
 
 ## Como executar
@@ -116,6 +144,7 @@ Para recomeçar do zero: `docker compose down -v` (apaga o volume do banco).
 | `DB_USERNAME` / `DB_PASSWORD` | `compras` / `compras` |
 | `DB_PORTA_HOST` (Compose) | `5434` |
 | `PORT` | `8080` |
+| `SWAGGER_ENABLED` | `true` (use `false` em produção) |
 
 ## Testes
 
@@ -123,7 +152,7 @@ Para recomeçar do zero: `docker compose down -v` (apaga o volume do banco).
 ./mvnw clean test
 ```
 
-Roda **53 testes**: 50 unitários (JUnit 5 + Mockito + AssertJ) e 3 de integração (`@SpringBootTest` + MockMvc + Testcontainers). O Docker precisa estar ligado para os de integração.
+Roda **61 testes**: 50 unitários (JUnit 5 + Mockito + AssertJ) e 11 de integração (`@SpringBootTest` + MockMvc + Testcontainers). O Docker precisa estar ligado para os de integração.
 
 | Classe | Cobre |
 |---|---|
@@ -133,6 +162,20 @@ Roda **53 testes**: 50 unitários (JUnit 5 + Mockito + AssertJ) e 3 de integraç
 | `PropostaDecisaoServiceTest` | Mínimo de 3; fornecedor inativo; proposta vencida; justificativa obrigatória; pedido emitido e cotação fechada |
 | `PedidoCompraServiceTest` | Saldo, último custo e preço médio ponderado; primeira compra; saldo zero; recebimento duplicado |
 | `FluxoComprasIntegracaoTest` | Ciclo completo via HTTP no PostgreSQL real, 409 em duplicidade e mensagens em PT, EN e `?lang=` |
+| `SegurancaIntegracaoTest` | Regressão do teste de vulnerabilidade: corridas no estoque e no recebimento, 405/415/413, limites numéricos, cabeçalhos e actuator |
+
+## Segurança
+
+A aplicação passou por um teste de vulnerabilidade caixa-branca: SAST com Semgrep, dependências e imagem com Trivy, DAST com OWASP ZAP (scan ativo guiado pelo OpenAPI) e testes manuais de abuso. O relatório completo, com evidências, correções e riscos aceitos, está em **[docs/relatorio-seguranca.md](docs/relatorio-seguranca.md)**.
+
+| | Antes | Depois |
+|---|---|---|
+| CVEs na imagem (Trivy) | 89 (9 críticas, 32 altas) | 2, avaliadas como não aplicáveis |
+| OWASP ZAP | 3 alertas | 120 de 121 regras passam |
+| 20 baixas de estoque simultâneas | saldo 23 (3 perdidas) | saldo 20 |
+| 10 recebimentos simultâneos do mesmo pedido | 2 aceitos | 1 aceito |
+
+O que ficou em aberto: a API **não tem autenticação**. Esse é o próximo passo antes de qualquer uso real; o relatório descreve a recomendação. O CI roda o Trivy a cada push e falha se surgir uma vulnerabilidade crítica com correção disponível.
 
 ## Exemplos com `curl`
 

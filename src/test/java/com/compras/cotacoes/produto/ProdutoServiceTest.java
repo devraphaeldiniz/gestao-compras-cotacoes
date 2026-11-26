@@ -115,7 +115,7 @@ class ProdutoServiceTest {
     @DisplayName("Regra A: SAIDA que deixa o saldo abaixo do mínimo gera cotação de reposição")
     void saidaAbaixoDoMinimoGeraCotacao() {
         Produto produto = Fabrica.produto(1L, "LUV-M", "50", "20");
-        when(produtoRepository.findById(1L)).thenReturn(Optional.of(produto));
+        when(produtoRepository.buscarComBloqueio(1L)).thenReturn(Optional.of(produto));
 
         ProdutoResponse resposta = service.movimentarEstoque(1L, movimento(TipoMovimentacaoEstoque.SAIDA, "35"));
 
@@ -129,7 +129,7 @@ class ProdutoServiceTest {
     @DisplayName("Regra A: AJUSTE de inventário que leva ao mínimo também gera cotação")
     void ajusteAbaixoDoMinimoGeraCotacao() {
         Produto produto = Fabrica.produto(1L, "LUV-M", "50", "20");
-        when(produtoRepository.findById(1L)).thenReturn(Optional.of(produto));
+        when(produtoRepository.buscarComBloqueio(1L)).thenReturn(Optional.of(produto));
 
         service.movimentarEstoque(1L, movimento(TipoMovimentacaoEstoque.AJUSTE, "0"));
 
@@ -144,7 +144,7 @@ class ProdutoServiceTest {
         Produto produto = Fabrica.produto(1L, "LUV-M", "50", "20");
         Cotacao existente = Fabrica.cotacaoAberta(3L, produto, "30");
         existente.setStatus(statusExistente);
-        when(produtoRepository.findById(1L)).thenReturn(Optional.of(produto));
+        when(produtoRepository.buscarComBloqueio(1L)).thenReturn(Optional.of(produto));
         when(cotacaoRepository.findFirstByProdutoIdAndStatusInOrderByIdDesc(eq(1L), anyCollection()))
                 .thenReturn(Optional.of(existente));
 
@@ -160,7 +160,7 @@ class ProdutoServiceTest {
     @DisplayName("SAIDA maior que o saldo é bloqueada e não altera o estoque")
     void saidaMaiorQueSaldoLancaErro() {
         Produto produto = Fabrica.produto(1L, "LUV-M", "5", "2");
-        when(produtoRepository.findById(1L)).thenReturn(Optional.of(produto));
+        when(produtoRepository.buscarComBloqueio(1L)).thenReturn(Optional.of(produto));
 
         assertThatThrownBy(() -> service.movimentarEstoque(1L, movimento(TipoMovimentacaoEstoque.SAIDA, "6")))
                 .isInstanceOf(NegocioException.class)
@@ -175,7 +175,7 @@ class ProdutoServiceTest {
     @DisplayName("ENTRADA soma ao saldo e não dispara a Regra A")
     void entradaNaoGeraCotacao() {
         Produto produto = Fabrica.produto(1L, "LUV-M", "5", "20");
-        when(produtoRepository.findById(1L)).thenReturn(Optional.of(produto));
+        when(produtoRepository.buscarComBloqueio(1L)).thenReturn(Optional.of(produto));
 
         ProdutoResponse resposta = service.movimentarEstoque(1L, movimento(TipoMovimentacaoEstoque.ENTRADA, "3"));
 
@@ -187,7 +187,7 @@ class ProdutoServiceTest {
     @DisplayName("ENTRADA e SAIDA exigem quantidade maior que zero")
     void movimentoComQuantidadeZeroLancaErro() {
         Produto produto = Fabrica.produto(1L, "LUV-M", "5", "2");
-        when(produtoRepository.findById(1L)).thenReturn(Optional.of(produto));
+        when(produtoRepository.buscarComBloqueio(1L)).thenReturn(Optional.of(produto));
 
         assertThatThrownBy(() -> service.movimentarEstoque(1L, movimento(TipoMovimentacaoEstoque.SAIDA, "0")))
                 .isInstanceOf(NegocioException.class)

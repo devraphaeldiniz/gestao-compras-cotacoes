@@ -100,7 +100,8 @@ public class CotacaoService {
     /** Regra B: RASCUNHO -> ABERTA, com convidados e data limite opcionais. */
     @Transactional
     public CotacaoDetalheResponse abrir(Long id, AbrirCotacaoRequest request) {
-        Cotacao cotacao = buscarComDetalhes(id);
+        Cotacao cotacao = cotacaoRepository.buscarComBloqueio(id)
+                .orElseThrow(() -> new RecursoNaoEncontradoException("cotacao.nao.encontrada", id));
         if (cotacao.getStatus() != StatusCotacao.RASCUNHO) {
             throw new NegocioException("cotacao.status.invalido.abrir", cotacao.getCodigo(), cotacao.getStatus());
         }

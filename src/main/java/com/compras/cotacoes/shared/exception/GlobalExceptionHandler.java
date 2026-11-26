@@ -12,6 +12,9 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.HttpMediaTypeNotAcceptableException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -75,6 +78,32 @@ public class GlobalExceptionHandler {
         List<ErroRespostaDTO.CampoInvalido> campos = List.of(
                 new ErroRespostaDTO.CampoInvalido(ex.getParameterName(), mensagens.obter("validacao.obrigatorio")));
         return responder(HttpStatus.BAD_REQUEST, mensagens.obter("erro.validacao"), request, campos);
+    }
+
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ErroRespostaDTO> metodoNaoSuportado(HttpRequestMethodNotSupportedException ex,
+                                                              HttpServletRequest request) {
+        ResponseEntity<ErroRespostaDTO> resposta = responder(HttpStatus.METHOD_NOT_ALLOWED,
+                mensagens.obter("erro.metodo.nao.suportado", ex.getMethod()), request, List.of());
+        if (ex.getSupportedHttpMethods() == null) {
+            return resposta;
+        }
+        return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED)
+                .allow(ex.getSupportedHttpMethods().toArray(org.springframework.http.HttpMethod[]::new))
+                .body(resposta.getBody());
+    }
+
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<ErroRespostaDTO> midiaNaoSuportada(HttpMediaTypeNotSupportedException ex,
+                                                             HttpServletRequest request) {
+        return responder(HttpStatus.UNSUPPORTED_MEDIA_TYPE,
+                mensagens.obter("erro.midia.nao.suportada", String.valueOf(ex.getContentType())), request, List.of());
+    }
+
+    @ExceptionHandler(HttpMediaTypeNotAcceptableException.class)
+    public ResponseEntity<ErroRespostaDTO> midiaNaoAceitavel(HttpMediaTypeNotAcceptableException ex,
+                                                             HttpServletRequest request) {
+        return responder(HttpStatus.NOT_ACCEPTABLE, mensagens.obter("erro.midia.nao.aceitavel"), request, List.of());
     }
 
     @ExceptionHandler(RecursoNaoEncontradoException.class)

@@ -21,3 +21,6 @@ Thumbs.db
 
 # Configuração local do Claude Code (caminho do JDK desta máquina)
 .claude/
+
+# Artefatos de ferramentas locais
+.playwright-mcp/

@@ -12,6 +12,7 @@ import com.compras.cotacoes.cotacao.Cotacao;
 import com.compras.cotacoes.fornecedor.Fornecedor;
 import com.compras.cotacoes.pedido.dto.PedidoCompraResponse;
 import com.compras.cotacoes.produto.Produto;
+import com.compras.cotacoes.produto.ProdutoRepository;
 import com.compras.cotacoes.shared.exception.NegocioException;
 import com.compras.cotacoes.shared.exception.RecursoNaoEncontradoException;
 import com.compras.cotacoes.support.Fabrica;
@@ -32,11 +33,14 @@ class PedidoCompraServiceTest {
     @Mock
     private PedidoCompraRepository pedidoCompraRepository;
 
+    @Mock
+    private ProdutoRepository produtoRepository;
+
     private PedidoCompraService service;
 
     @BeforeEach
     void configurar() {
-        service = new PedidoCompraService(pedidoCompraRepository,
+        service = new PedidoCompraService(pedidoCompraRepository, produtoRepository,
                 Mappers.getMapper(PedidoCompraMapper.class), Fabrica.RELOGIO);
         lenient().when(pedidoCompraRepository.save(any(PedidoCompra.class))).thenAnswer(inv -> inv.getArgument(0));
     }
@@ -47,7 +51,7 @@ class PedidoCompraServiceTest {
         Produto produto = Fabrica.produto(1L, "PAP-A4", "10", "20");
         produto.setPrecoMedioCompra(new BigDecimal("20.0000"));
         PedidoCompra pedido = pedido(produto, "30", "750.00", StatusPedidoCompra.EMITIDO);
-        when(pedidoCompraRepository.findComDetalhesById(50L)).thenReturn(Optional.of(pedido));
+        when(pedidoCompraRepository.buscarComBloqueio(50L)).thenReturn(Optional.of(pedido));
 
         PedidoCompraResponse resposta = service.receber(50L);
 
@@ -65,7 +69,7 @@ class PedidoCompraServiceTest {
     void primeiraCompraUsaCustoEfetivo() {
         Produto produto = Fabrica.produto(1L, "PAP-A4", "4", "20");
         PedidoCompra pedido = pedido(produto, "32", "927.42", StatusPedidoCompra.EMITIDO);
-        when(pedidoCompraRepository.findComDetalhesById(50L)).thenReturn(Optional.of(pedido));
+        when(pedidoCompraRepository.buscarComBloqueio(50L)).thenReturn(Optional.of(pedido));
 
         service.receber(50L);
 
@@ -81,7 +85,7 @@ class PedidoCompraServiceTest {
         Produto produto = Fabrica.produto(1L, "PAP-A4", "0", "20");
         produto.setPrecoMedioCompra(new BigDecimal("99.0000"));
         PedidoCompra pedido = pedido(produto, "3", "100.00", StatusPedidoCompra.EMITIDO);
-        when(pedidoCompraRepository.findComDetalhesById(50L)).thenReturn(Optional.of(pedido));
+        when(pedidoCompraRepository.buscarComBloqueio(50L)).thenReturn(Optional.of(pedido));
 
         service.receber(50L);
 
@@ -94,7 +98,7 @@ class PedidoCompraServiceTest {
     void naoRecebeDuasVezes() {
         Produto produto = Fabrica.produto(1L, "PAP-A4", "10", "20");
         PedidoCompra pedido = pedido(produto, "30", "750.00", StatusPedidoCompra.RECEBIDO);
-        when(pedidoCompraRepository.findComDetalhesById(50L)).thenReturn(Optional.of(pedido));
+        when(pedidoCompraRepository.buscarComBloqueio(50L)).thenReturn(Optional.of(pedido));
 
         assertThatThrownBy(() -> service.receber(50L))
                 .isInstanceOf(NegocioException.class)
@@ -106,12 +110,12 @@ class PedidoCompraServiceTest {
     @Test
     @DisplayName("Pedido inexistente retorna 404")
     void pedidoInexistente() {
-        when(pedidoCompraRepository.findComDetalhesById(1L)).thenReturn(Optional.empty());
+        when(pedidoCompraRepository.buscarComBloqueio(1L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.receber(1L)).isInstanceOf(RecursoNaoEncontradoException.class);
     }
 
-    private static PedidoCompra pedido(Produto produto, String quantidade, String total, StatusPedidoCompra status) {
+    private PedidoCompra pedido(Produto produto, String quantidade, String total, StatusPedidoCompra status) {
         Cotacao cotacao = Fabrica.cotacaoAberta(5L, produto, quantidade);
         Fornecedor fornecedor = Fabrica.fornecedor(1L, "Alfa", true);
         PedidoCompra pedido = new PedidoCompra();
@@ -127,6 +131,7 @@ class PedidoCompraServiceTest {
         pedido.setValorTotal(new BigDecimal(total));
         pedido.setPrazoEntregaDias(5);
         pedido.setStatus(status);
+        lenient().when(produtoRepository.buscarComBloqueio(produto.getId())).thenReturn(Optional.of(produto));
         return pedido;
     }
 }

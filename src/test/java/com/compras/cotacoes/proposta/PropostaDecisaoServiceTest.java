@@ -22,6 +22,7 @@ import com.compras.cotacoes.pedido.PedidoCompraRepository;
 import com.compras.cotacoes.pedido.PedidoCompraService;
 import com.compras.cotacoes.pedido.StatusPedidoCompra;
 import com.compras.cotacoes.produto.Produto;
+import com.compras.cotacoes.produto.ProdutoRepository;
 import com.compras.cotacoes.proposta.dto.DecidirCotacaoRequest;
 import com.compras.cotacoes.proposta.dto.RegistrarPropostaRequest;
 import com.compras.cotacoes.proposta.dto.ResultadoDecisaoResponse;
@@ -56,6 +57,8 @@ class PropostaDecisaoServiceTest {
     private FornecedorRepository fornecedorRepository;
     @Mock
     private PedidoCompraRepository pedidoCompraRepository;
+    @Mock
+    private ProdutoRepository produtoRepository;
 
     private PropostaService service;
     private Cotacao cotacao;
@@ -70,7 +73,7 @@ class PropostaDecisaoServiceTest {
     void configurar() {
         LocaleContextHolder.setLocale(Locale.forLanguageTag("pt-BR"));
         PedidoCompraMapper pedidoMapper = Mappers.getMapper(PedidoCompraMapper.class);
-        PedidoCompraService pedidoService = new PedidoCompraService(pedidoCompraRepository, pedidoMapper, Fabrica.RELOGIO);
+        PedidoCompraService pedidoService = new PedidoCompraService(pedidoCompraRepository, produtoRepository, pedidoMapper, Fabrica.RELOGIO);
         service = new PropostaService(propostaRepository, cotacaoRepository, fornecedorRepository,
                 new CalculadoraPropostaService(), new AvaliadorPropostasService(), pedidoService,
                 Mappers.getMapper(PropostaMapper.class), pedidoMapper, Fabrica.mensagens(), Fabrica.RELOGIO);
@@ -78,7 +81,7 @@ class PropostaDecisaoServiceTest {
         Produto produto = Fabrica.produto(1L, "PAP-A4", "8", "20");
         cotacao = Fabrica.cotacaoAberta(5L, produto, "32");
 
-        lenient().when(cotacaoRepository.findComDetalhesById(5L)).thenReturn(Optional.of(cotacao));
+        lenient().when(cotacaoRepository.buscarComBloqueio(5L)).thenReturn(Optional.of(cotacao));
         lenient().when(propostaRepository.findByCotacaoIdOrderByIdAsc(5L)).thenReturn(propostas);
         lenient().when(pedidoCompraRepository.proximoNumeroPedido()).thenReturn(1L);
         lenient().when(pedidoCompraRepository.save(any(PedidoCompra.class))).thenAnswer(inv -> {

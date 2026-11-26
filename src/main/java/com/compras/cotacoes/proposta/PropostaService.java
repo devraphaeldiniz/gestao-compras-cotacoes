@@ -38,6 +38,9 @@ public class PropostaService {
     /** Trava da Regra D: a decisão exige pelo menos 3 propostas elegíveis. */
     public static final int MINIMO_PROPOSTAS_VALIDAS = 3;
 
+    /** Limite de NUMERIC(19,2): 17 dígitos inteiros. */
+    static final BigDecimal VALOR_TOTAL_MAXIMO = BigDecimal.TEN.pow(17);
+
     private final PropostaRepository propostaRepository;
     private final CotacaoRepository cotacaoRepository;
     private final FornecedorRepository fornecedorRepository;
@@ -80,6 +83,10 @@ public class PropostaService {
         CalculadoraPropostaService.ResultadoCalculo calculo = calculadora.calcular(
                 cotacao.getQuantidade(), request.precoUnitario(), request.valorFrete(),
                 request.impostoPercentual(), request.valorImpostoFixo());
+        // A coluna valor_total é NUMERIC(19,2): sem esta checagem o overflow viraria erro de banco
+        if (calculo.valorTotal().compareTo(VALOR_TOTAL_MAXIMO) >= 0) {
+            throw new NegocioException("proposta.valor.excede.limite");
+        }
 
         Proposta proposta = new Proposta();
         proposta.setCotacao(cotacao);
@@ -197,8 +204,9 @@ public class PropostaService {
         }
     }
 
+    /** Com bloqueio de linha: registro de proposta e decisão da mesma cotação nunca rodam em paralelo. */
     private Cotacao buscarCotacao(Long cotacaoId) {
-        return cotacaoRepository.findComDetalhesById(cotacaoId)
+        return cotacaoRepository.buscarComBloqueio(cotacaoId)
                 .orElseThrow(() -> new RecursoNaoEncontradoException("cotacao.nao.encontrada", cotacaoId));
     }
 

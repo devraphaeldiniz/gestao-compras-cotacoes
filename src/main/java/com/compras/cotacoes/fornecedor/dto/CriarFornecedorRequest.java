@@ -2,6 +2,7 @@ package com.compras.cotacoes.fornecedor.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
@@ -29,5 +30,6 @@ public record CriarFornecedorRequest(
         @Schema(example = "5")
         @NotNull(message = "{validacao.obrigatorio}")
         @PositiveOrZero(message = "{validacao.nao.negativo}")
+        @Max(value = 3650, message = "{validacao.maximo}")
         Integer prazoMedioDias) {
 }

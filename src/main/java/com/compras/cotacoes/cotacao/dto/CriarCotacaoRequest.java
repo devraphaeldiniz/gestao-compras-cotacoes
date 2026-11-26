@@ -5,6 +5,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.Digits;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
@@ -17,6 +18,7 @@ public record CriarCotacaoRequest(
         @Schema(example = "30")
         @NotNull(message = "{validacao.obrigatorio}")
         @Positive(message = "{validacao.positivo}")
+        @Digits(integer = 15, fraction = 4, message = "{validacao.digitos}")
         BigDecimal quantidade,
 
         @Schema(description = "RASCUNHO (padrão) ou ABERTA", example = "RASCUNHO")

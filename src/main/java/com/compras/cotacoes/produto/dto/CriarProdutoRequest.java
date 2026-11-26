@@ -6,6 +6,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.Digits;
 import java.math.BigDecimal;
 
 public record CriarProdutoRequest(
@@ -26,10 +27,12 @@ public record CriarProdutoRequest(
         @Schema(example = "12")
         @NotNull(message = "{validacao.obrigatorio}")
         @PositiveOrZero(message = "{validacao.nao.negativo}")
+        @Digits(integer = 15, fraction = 4, message = "{validacao.digitos}")
         BigDecimal saldoAtual,
 
         @Schema(example = "10")
         @NotNull(message = "{validacao.obrigatorio}")
         @PositiveOrZero(message = "{validacao.nao.negativo}")
+        @Digits(integer = 15, fraction = 4, message = "{validacao.digitos}")
         BigDecimal estoqueMinimo) {
 }

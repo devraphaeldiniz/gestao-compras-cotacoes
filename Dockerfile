@@ -14,7 +14,8 @@ RUN ./mvnw -B -q -DskipTests package && cp target/compras-cotacoes-*.jar app.jar
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 
-RUN addgroup -S app && adduser -S app -G app
+# apk upgrade aplica os patches do Alpine publicados depois da imagem base (ex.: libexpat, zlib)
+RUN apk upgrade --no-cache && addgroup -S app && adduser -S app -G app
 COPY --from=build /app/app.jar app.jar
 USER app
 

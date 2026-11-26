@@ -1,0 +1,11 @@
+# Vulnerabilidades avaliadas e aceitas (ver docs/relatorio-seguranca.md, seção "Riscos aceitos").
+# Revisar a cada atualização do Spring Boot; remover quando migrar para Spring Framework 7.0.9+.
+
+# Spring MVC XsltView: exige XsltView + mapeamento "/**" que renderize views.
+# A aplicação só tem @RestController com JSON; não usa XsltView, ModelAndView nem templates.
+# Correção só existe na linha 7.x (Spring Boot 4). Revisão: 2026-12-31
+CVE-2026-47884
+
+# SSE com view fragments: a aplicação não usa Server-Sent Events nem view fragments.
+# Correção só existe na linha 7.x (Spring Boot 4). Revisão: 2026-12-31
+CVE-2026-47890

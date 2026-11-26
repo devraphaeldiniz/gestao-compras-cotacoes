@@ -59,7 +59,8 @@ public class ProdutoService {
 
     @Transactional
     public ProdutoResponse movimentarEstoque(Long produtoId, MovimentarEstoqueRequest request) {
-        Produto produto = buscarEntidade(produtoId);
+        Produto produto = produtoRepository.buscarComBloqueio(produtoId)
+                .orElseThrow(() -> new RecursoNaoEncontradoException("produto.nao.encontrado", produtoId));
         BigDecimal quantidade = request.quantidade();
         BigDecimal saldo = produto.getSaldoAtual();
 
@@ -122,11 +123,6 @@ public class ProdutoService {
                 ? estoqueMinimo.subtract(saldoAtual).add(estoqueMinimo)
                 : estoqueMinimo;
         return quantidade.signum() > 0 ? quantidade : BigDecimal.ONE;
-    }
-
-    private Produto buscarEntidade(Long produtoId) {
-        return produtoRepository.findById(produtoId)
-                .orElseThrow(() -> new RecursoNaoEncontradoException("produto.nao.encontrado", produtoId));
     }
 
     private static void exigirQuantidadePositiva(MovimentarEstoqueRequest request) {
